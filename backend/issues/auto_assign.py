@@ -1,5 +1,5 @@
 """
-Auto-assignment logic for CityFlow issues.
+Auto-assignment logic for CivixAI issues.
 
 Algorithm:
   1. Map issue category → compatible worker categories

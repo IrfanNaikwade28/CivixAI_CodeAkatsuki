@@ -29,6 +29,10 @@ class Issue(models.Model):
         'Garbage': 70, 'Traffic': 75, 'Public Facilities': 60,
     }
 
+    # Agent flag: when True, save() skips auto-computing priority.
+    # Set by agent.tools.apply_analysis() so Gemini's decision is preserved.
+    _agent_priority_applied = False
+
     display_id = models.CharField(max_length=15, unique=True, blank=True)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -79,17 +83,22 @@ class Issue(models.Model):
         if not self.display_id:
             super().save(*args, **kwargs)
             self.display_id = f"CP-{2000 + self.pk}"
-            self.compute_priority_score()
+            if not self._agent_priority_applied:
+                self.compute_priority_score()
             Issue.objects.filter(pk=self.pk).update(
                 display_id=self.display_id,
                 priority=self.priority,
                 priority_score=self.priority_score,
             )
             return
-        self.compute_priority_score()
+        if not self._agent_priority_applied:
+            self.compute_priority_score()
         super().save(*args, **kwargs)
 
     def compute_priority_score(self):
+        # Skip if agent has already applied a validated priority decision
+        if self._agent_priority_applied:
+            return
         base = self.BASE_WEIGHTS.get(self.category, 60)
         hours = (timezone.now() - self.reported_at).total_seconds() / 3600 if self.reported_at else 0
         time_factor = min(hours, 100)

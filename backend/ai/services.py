@@ -1,5 +1,5 @@
 """
-Gemini AI service layer for CityFlow.
+Gemini AI service layer for CivixAI.
 Two features:
   1. detect_issue(image_file)  → {category, title, confidence}
   2. verify_completion(issue)  → {completion_score, verdict}
@@ -21,10 +21,10 @@ def _get_client():
     # Always re-read the key so a server restart picks up a new .env value.
     # Reset cached client if the key has changed.
     current_key = settings.GEMINI_API_KEY
-    if _client is None or getattr(_client, '_cityflow_api_key', None) != current_key:
+    if _client is None or getattr(_client, '_civixai_api_key', None) != current_key:
         from google import genai
         _client = genai.Client(api_key=current_key)
-        _client._cityflow_api_key = current_key
+        _client._civixai_api_key = current_key
     return _client
 
 
@@ -148,7 +148,7 @@ def verify_completion_from_bytes(issue, after_bytes: bytes, after_mime: str, bef
             with open(issue.image.path, 'rb') as f:
                 before_bytes = f.read()
 
-        prompt = f"""You are a municipal work verification system for CityFlow, Ichalkaranji.
+        prompt = f"""You are a municipal work verification system for CivixAI, Ichalkaranji.
 
 The FIRST image is the BEFORE photo of a reported issue: "{issue.title}" (Category: {issue.category}).
 The SECOND image is the AFTER photo submitted by the field worker claiming the work is done.

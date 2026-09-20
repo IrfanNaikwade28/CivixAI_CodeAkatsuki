@@ -7,7 +7,7 @@ from bins.models import GarbageBin
 
 
 class Command(BaseCommand):
-    help = 'Seed the database with fresh CityFlow data — 1 admin, 10 workers, 3 citizens. No issues or bins.'
+    help = 'Seed the database with fresh CivixAI data — 1 admin, 10 workers, 3 citizens. No issues or bins.'
 
     def handle(self, *args, **options):
         self.stdout.write('Clearing existing data...')
@@ -21,10 +21,10 @@ class Command(BaseCommand):
 
         admin = User.objects.create_superuser(
             username='admin',
-            email='admin@cityflow.gov.in',
+            email='admin@civixai.gov.in',
             password='admin1234',
             first_name='Admin',
-            last_name='CityFlow',
+            last_name='CivixAI',
             role='admin',
         )
         admin.display_id = 'A-00'
@@ -99,7 +99,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             '\nSeed complete! Clean database — no issues, no bins.\n\n'
-            '  Admin:    admin@cityflow.gov.in         / admin1234\n'
+            '  Admin:    admin@civixai.gov.in          / admin1234\n'
             '  Citizens: rajesh@example.com            / 1234  (Ward 5)\n'
             '            sunita@example.com            / 1234  (Ward 3)\n'
             '            amol@example.com              / 1234  (Ward 7)\n'

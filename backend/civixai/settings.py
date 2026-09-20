@@ -8,7 +8,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-cityflow-dev-key')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-civixai-dev-key')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if os.environ.get('ALLOWED_HOSTS') else ['localhost', '127.0.0.1']
 
@@ -23,7 +23,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
-    # CityFlow apps
+    # CivixAI apps
     'accounts',
     'issues',
     'bins',
@@ -44,7 +44,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'cityflow.urls'
+ROOT_URLCONF = 'civixai.urls'
 
 TEMPLATES = [
     {
@@ -61,7 +61,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'cityflow.wsgi.application'
+WSGI_APPLICATION = 'civixai.wsgi.application'
 
 # ─── Database ────────────────────────────────────────────────────────────────
 # Production: set DATABASE_URL env var (e.g. postgres://user:pass@host:5432/dbname)

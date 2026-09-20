@@ -41,6 +41,16 @@ def process_complaint(issue):
             'skipped': True,
         }
 
+    # ── IDEMPOTENCY: skip if already processed (RECEIVED trace exists) ──
+    from agent.models import AgentTrace as _AT
+    if _AT.objects.filter(issue_id=issue_id, action='RECEIVED').exists():
+        return {
+            'success': True,
+            'issue_id': issue_id,
+            'message': 'Issue already processed by agent',
+            'skipped': True,
+        }
+
     # ════════════════════════════════════════════════
     # STEP 1 — RECEIVE
     # ════════════════════════════════════════════════

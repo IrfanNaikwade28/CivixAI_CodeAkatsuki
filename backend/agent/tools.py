@@ -203,6 +203,8 @@ def apply_analysis(issue, analysis):
             update_fields['priority_score'] = priority_score
 
         if update_fields:
+            # Set flag so save() does not auto-compute over agent's decision
+            issue._agent_priority_applied = True
             Issue.objects.filter(pk=issue.pk).update(**update_fields)
             issue.refresh_from_db()
 

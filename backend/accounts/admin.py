@@ -10,12 +10,12 @@ class UserAdmin(BaseUserAdmin):
     search_fields = ('email', 'username', 'first_name', 'last_name', 'display_id')
     ordering = ('email',)
     fieldsets = BaseUserAdmin.fieldsets + (
-        ('CityFlow Info', {
+        ('CivixAI Info', {
             'fields': ('role', 'ward', 'phone', 'category', 'display_id', 'joined_date')
         }),
     )
     add_fieldsets = BaseUserAdmin.add_fieldsets + (
-        ('CityFlow Info', {
+        ('CivixAI Info', {
             'fields': ('role', 'ward', 'phone', 'category')
         }),
     )

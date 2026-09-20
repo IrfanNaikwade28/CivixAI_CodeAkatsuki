@@ -1,4 +1,6 @@
 import math
+import logging
+import threading
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import status
@@ -10,6 +12,8 @@ from rest_framework.response import Response
 from .auto_assign import find_best_worker
 from .models import Issue, IssueComment, IssueTimeline, IssueUpvote
 from .serializers import IssueSerializer, IssueCreateSerializer, IssueCommentSerializer
+
+logger = logging.getLogger('ai')
 
 User = get_user_model()
 
@@ -74,6 +78,22 @@ def issue_list_create(request):
                 note=f'Auto-assigned to {worker.get_full_name() or worker.username} based on category and workload.',
             )
             issue.refresh_from_db()
+
+        # ── Auto-trigger agent processing in background ──
+        def _run_agent(issue_id):
+            try:
+                from agent.orchestrator import process_complaint
+                from agent.models import AgentTrace
+                # Idempotency: skip if already processed
+                if AgentTrace.objects.filter(issue_id=issue_id, action='RECEIVED').exists():
+                    return
+                fresh_issue = Issue.objects.get(pk=issue_id)
+                process_complaint(fresh_issue)
+            except Exception as e:
+                logger.error(f"Auto agent processing failed for issue {issue_id}: {e}")
+
+        t = threading.Thread(target=_run_agent, args=(issue.pk,), daemon=True)
+        t.start()
 
         full = IssueSerializer(issue, context={'request': request})
         return Response(full.data, status=status.HTTP_201_CREATED)

@@ -1081,7 +1081,7 @@ class DatabaseConfigTest(TestCase):
     def test_postgresql_config_from_env(self):
         from urllib.parse import urlparse
         import importlib
-        import cityflow.settings as settings_mod
+        import civixai.settings as settings_mod
 
         url = urlparse(os.environ['DATABASE_URL'])
         # Verify URL parsing works correctly

@@ -23,10 +23,10 @@ def _get_client():
     """Lazy-init Gemini client. Same pattern as ai/services.py."""
     global _client
     current_key = settings.GEMINI_API_KEY
-    if _client is None or getattr(_client, '_cityflow_api_key', None) != current_key:
+    if _client is None or getattr(_client, '_civixai_api_key', None) != current_key:
         from google import genai
         _client = genai.Client(api_key=current_key)
-        _client._cityflow_api_key = current_key
+        _client._civixai_api_key = current_key
     return _client
 
 
