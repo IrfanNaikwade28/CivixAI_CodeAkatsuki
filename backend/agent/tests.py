@@ -2,9 +2,10 @@ from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 
-from issues.models import Issue
+from issues.models import Issue, IssueTimeline
 from agent.models import AgentTrace
 from agent.analysis import analyze_complaint, _validate_analysis, _build_issue_context
+from agent.tools import assign_worker, update_issue_status, apply_analysis, log_agent_action
 
 User = get_user_model()
 
@@ -268,3 +269,396 @@ class AnalyzeComplaintTest(TestCase):
 
         result = analyze_complaint(self.issue)
         self.assertIsNone(result)
+
+
+# ─── Agent Action Tools Tests ────────────────────────────────────────────────
+
+class AssignWorkerTest(TestCase):
+    def setUp(self):
+        self.citizen = User.objects.create_user(
+            username='acitizen', email='ac@test.com', password='test1234',
+            role='citizen', ward='Ward 5',
+        )
+        self.worker = User.objects.create_user(
+            username='aworker', email='aw@test.com', password='test1234',
+            role='worker', ward='Ward 5', category='Electrical',
+        )
+        self.issue = Issue.objects.create(
+            title='Broken streetlight', category='Electricity',
+            ward='Ward 5', reported_by=self.citizen,
+        )
+
+    def test_assign_worker_success(self):
+        result = assign_worker(self.issue)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'ASSIGN_WORKER')
+        self.assertEqual(result['worker_id'], self.worker.pk)
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, 'Assigned')
+        self.assertEqual(self.issue.assigned_to, self.worker)
+        self.assertIsNotNone(self.issue.assigned_at)
+
+    def test_assign_worker_creates_timeline(self):
+        assign_worker(self.issue)
+        timeline = IssueTimeline.objects.filter(issue=self.issue, status='Assigned')
+        self.assertEqual(timeline.count(), 1)
+        self.assertIn('Agent auto-assigned', timeline.first().note)
+
+    @patch('issues.auto_assign.find_best_worker', return_value=None)
+    def test_assign_worker_no_worker_available(self, mock_find):
+        result = assign_worker(self.issue)
+        self.assertFalse(result['success'])
+        self.assertIn('No suitable worker', result['message'])
+
+
+class UpdateIssueStatusTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='ustuser', email='ust@test.com', password='test1234',
+            role='citizen', ward='Ward 3',
+        )
+        self.issue = Issue.objects.create(
+            title='Pothole on road', category='Road',
+            ward='Ward 3', reported_by=self.user,
+        )
+
+    def test_update_status_success(self):
+        result = update_issue_status(self.issue, 'In Progress', note='Starting work')
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'In Progress')
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, 'In Progress')
+
+    def test_update_status_creates_timeline(self):
+        update_issue_status(self.issue, 'Assigned', note='Assigned by agent')
+        timeline = IssueTimeline.objects.filter(issue=self.issue, status='Assigned')
+        self.assertEqual(timeline.count(), 1)
+        self.assertEqual(timeline.first().note, 'Assigned by agent')
+
+    def test_update_status_resolved_sets_timestamp(self):
+        result = update_issue_status(self.issue, 'Resolved')
+        self.assertTrue(result['success'])
+        self.issue.refresh_from_db()
+        self.assertIsNotNone(self.issue.resolved_at)
+
+    def test_update_status_invalid(self):
+        result = update_issue_status(self.issue, 'INVALID_STATUS')
+        self.assertFalse(result['success'])
+        self.assertIn('Invalid status', result['message'])
+
+    def test_update_status_same_status(self):
+        result = update_issue_status(self.issue, 'Submitted')
+        self.assertTrue(result['success'])
+        self.assertIn('already', result['message'])
+
+
+class ApplyAnalysisTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='aatuser', email='aat@test.com', password='test1234',
+            role='citizen', ward='Ward 5',
+        )
+        self.issue = Issue.objects.create(
+            title='Water leak', category='Water',
+            ward='Ward 5', reported_by=self.user,
+        )
+        self.valid_analysis = {
+            'classification': {'category': 'Water', 'confidence': 0.9},
+            'severity': {'level': 'HIGH', 'score': 85, 'reason': 'Safety issue'},
+            'priority': {'level': 'HIGH', 'score': 80, 'reason': 'Urgent'},
+            'department': {'name': 'Water Supply', 'reason': 'Water infrastructure'},
+            'complaint': {
+                'title': 'Major water pipe burst',
+                'summary': 'Pipe burst near main road',
+                'description': 'Large water pipe burst causing flooding on main road.',
+            },
+            'recommended_action': 'ASSIGN_WORKER',
+            'reasoning': 'Clear water infrastructure failure.',
+        }
+
+    def test_apply_analysis_success(self):
+        result = apply_analysis(self.issue, self.valid_analysis)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'APPLY_ANALYSIS')
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.title, 'Major water pipe burst')
+        self.assertEqual(self.issue.description, 'Large water pipe burst causing flooding on main road.')
+
+    def test_apply_analysis_invalid_category(self):
+        self.valid_analysis['classification']['category'] = 'INVALID'
+        result = apply_analysis(self.issue, self.valid_analysis)
+        self.assertFalse(result['success'])
+        self.assertIn('Invalid category', result['message'])
+
+    def test_apply_analysis_invalid_priority(self):
+        self.valid_analysis['priority']['level'] = 'EXTREME'
+        result = apply_analysis(self.issue, self.valid_analysis)
+        self.assertFalse(result['success'])
+        self.assertIn('Invalid priority', result['message'])
+
+    def test_apply_analysis_invalid_score(self):
+        self.valid_analysis['priority']['score'] = 200
+        result = apply_analysis(self.issue, self.valid_analysis)
+        self.assertTrue(result['success'])  # score gets clamped
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.priority_score, 100)
+
+    def test_apply_analysis_none_input(self):
+        result = apply_analysis(self.issue, None)
+        self.assertFalse(result['success'])
+
+    def test_apply_analysis_missing_keys(self):
+        result = apply_analysis(self.issue, {'classification': {}})
+        self.assertFalse(result['success'])
+
+
+class LogAgentActionTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='latuser', email='lat@test.com', password='test1234',
+            role='citizen', ward='Ward 2',
+        )
+        self.issue = Issue.objects.create(
+            title='Garbage overflow', category='Garbage',
+            ward='Ward 2', reported_by=self.user,
+        )
+
+    def test_log_agent_action_creates_trace(self):
+        result = log_agent_action(
+            self.issue, 'TEST_ACTION',
+            input_data={'key': 'value'},
+            decision={'result': 'ok'},
+            output_data={'saved': True},
+            duration_ms=500,
+        )
+        self.assertIsInstance(result, AgentTrace)
+        self.assertEqual(result.action, 'TEST_ACTION')
+        self.assertEqual(result.input_data, {'key': 'value'})
+        self.assertEqual(result.decision, {'result': 'ok'})
+        self.assertEqual(result.output_data, {'saved': True})
+        self.assertEqual(result.duration_ms, 500)
+        self.assertEqual(result.issue, self.issue)
+
+    def test_log_agent_action_minimal(self):
+        result = log_agent_action(self.issue, 'MINIMAL')
+        self.assertIsInstance(result, AgentTrace)
+        self.assertEqual(result.action, 'MINIMAL')
+        self.assertIsNone(result.input_data)
+
+
+VALID_ANALYSIS = {
+    'classification': {'category': 'Water', 'confidence': 0.9},
+    'severity': {'level': 'HIGH', 'score': 85, 'reason': 'Safety issue'},
+    'priority': {'level': 'HIGH', 'score': 80, 'reason': 'Urgent'},
+    'department': {'name': 'Water Supply', 'reason': 'Water infrastructure'},
+    'complaint': {
+        'title': 'Major water pipe burst',
+        'summary': 'Pipe burst near main road',
+        'description': 'Large water pipe burst causing flooding.',
+    },
+    'recommended_action': 'ASSIGN_WORKER',
+    'reasoning': 'Clear water infrastructure failure.',
+}
+
+
+class ProcessComplaintTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='orchuser', email='orch@test.com', password='test1234',
+            role='citizen', ward='Ward 5',
+        )
+        self.issue = Issue.objects.create(
+            title='Water leak', category='Water',
+            ward='Ward 5', reported_by=self.user,
+        )
+
+    @patch('agent.orchestrator.assign_worker')
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_assign_worker_flow(self, mock_log, mock_analyze, mock_apply, mock_assign):
+        mock_analyze.return_value = VALID_ANALYSIS
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+        mock_assign.return_value = {
+            'success': True, 'action': 'ASSIGN_WORKER',
+            'worker_id': 1, 'message': 'Worker assigned',
+        }
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'ASSIGN_WORKER')
+        self.assertTrue(result['execution']['success'])
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('RECEIVED', trace_actions)
+        self.assertIn('UNDERSTAND', trace_actions)
+        self.assertIn('ANALYZED', trace_actions)
+        self.assertIn('DECIDED', trace_actions)
+        self.assertIn('WORKER_ASSIGNED', trace_actions)
+        self.assertIn('COMPLETED', trace_actions)
+
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_review_flow(self, mock_log, mock_analyze, mock_apply):
+        analysis = dict(VALID_ANALYSIS, recommended_action='REVIEW')
+        mock_analyze.return_value = analysis
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'REVIEW')
+        self.assertEqual(result['execution']['message'], 'Human review required')
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('REVIEW_REQUIRED', trace_actions)
+
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_follow_up_flow(self, mock_log, mock_analyze, mock_apply):
+        analysis = dict(VALID_ANALYSIS, recommended_action='FOLLOW_UP')
+        mock_analyze.return_value = analysis
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'FOLLOW_UP')
+        self.assertEqual(result['execution']['message'], 'Follow-up required')
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('FOLLOW_UP_REQUIRED', trace_actions)
+
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_escalate_flow(self, mock_log, mock_analyze, mock_apply):
+        analysis = dict(VALID_ANALYSIS, recommended_action='ESCALATE')
+        mock_analyze.return_value = analysis
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'ESCALATE')
+        self.assertEqual(result['execution']['message'], 'Escalation required')
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('ESCALATION_REQUIRED', trace_actions)
+
+    @patch('agent.orchestrator.analyze_complaint', return_value=None)
+    @patch('agent.orchestrator.log_agent_action')
+    def test_analysis_failure(self, mock_log, mock_analyze):
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertFalse(result['success'])
+        self.assertEqual(result['stage'], 'ANALYZE')
+        self.assertIn('analysis failed', result['message'].lower())
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('ANALYSIS_FAILED', trace_actions)
+
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_apply_analysis_failure(self, mock_log, mock_analyze, mock_apply):
+        mock_analyze.return_value = VALID_ANALYSIS
+        mock_apply.return_value = {'success': False, 'action': 'APPLY_ANALYSIS', 'message': 'Bad data'}
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertFalse(result['success'])
+        self.assertEqual(result['stage'], 'APPLY_ANALYSIS')
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('DECISION_FAILED', trace_actions)
+
+    @patch('agent.orchestrator.assign_worker')
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_worker_assignment_failure(self, mock_log, mock_analyze, mock_apply, mock_assign):
+        mock_analyze.return_value = VALID_ANALYSIS
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+        mock_assign.return_value = {
+            'success': False, 'action': 'ASSIGN_WORKER',
+            'message': 'No suitable worker available',
+        }
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'ASSIGN_WORKER')
+        self.assertFalse(result['execution']['success'])
+
+        trace_actions = [c.args[1] if len(c.args) > 1 else c.kwargs.get('action') for c in mock_log.call_args_list]
+        self.assertIn('ASSIGNMENT_FAILED', trace_actions)
+
+    def test_already_resolved_issue(self):
+        self.issue.status = 'Resolved'
+        self.issue.save()
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        self.assertTrue(result['success'])
+        self.assertTrue(result['skipped'])
+
+    @patch('agent.orchestrator.assign_worker')
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    @patch('agent.orchestrator.log_agent_action')
+    def test_tools_called_not_direct_db(self, mock_log, mock_analyze, mock_apply, mock_assign):
+        mock_analyze.return_value = VALID_ANALYSIS
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+        mock_assign.return_value = {
+            'success': True, 'action': 'ASSIGN_WORKER',
+            'worker_id': 1, 'message': 'Done',
+        }
+
+        from agent.orchestrator import process_complaint
+        result = process_complaint(self.issue)
+
+        mock_analyze.assert_called_once_with(self.issue)
+        mock_apply.assert_called_once_with(self.issue, VALID_ANALYSIS)
+        mock_assign.assert_called_once_with(self.issue)
+
+        self.assertFalse(mock_assign.return_value.get('failure', False))
+
+    @patch('agent.orchestrator.assign_worker')
+    @patch('agent.orchestrator.apply_analysis')
+    @patch('agent.orchestrator.analyze_complaint')
+    def test_trace_data_structured(self, mock_analyze, mock_apply, mock_assign):
+        mock_analyze.return_value = VALID_ANALYSIS
+        mock_apply.return_value = {'success': True, 'action': 'APPLY_ANALYSIS'}
+        mock_assign.return_value = {
+            'success': True, 'action': 'ASSIGN_WORKER',
+            'worker_id': 1, 'worker_display_id': 'WK-001',
+            'worker_name': 'Test Worker', 'message': 'Done',
+        }
+
+        from agent.orchestrator import process_complaint
+        process_complaint(self.issue)
+
+        traces = AgentTrace.objects.filter(issue=self.issue).order_by('timestamp')
+        actions = list(traces.values_list('action', flat=True))
+        self.assertEqual(actions, [
+            'RECEIVED', 'UNDERSTAND', 'ANALYZED', 'DECIDED',
+            'WORKER_ASSIGNED', 'COMPLETED',
+        ])
+
+        analyzed_trace = traces.filter(action='ANALYZED').first()
+        self.assertIsNotNone(analyzed_trace.decision)
+        self.assertIn('classification', analyzed_trace.decision)
+        self.assertIn('priority', analyzed_trace.decision)
+        self.assertIn('recommended_action', analyzed_trace.decision)
