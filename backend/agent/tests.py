@@ -1,6 +1,8 @@
 from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from issues.models import Issue, IssueTimeline
 from agent.models import AgentTrace
@@ -662,3 +664,120 @@ class ProcessComplaintTest(TestCase):
         self.assertIn('classification', analyzed_trace.decision)
         self.assertIn('priority', analyzed_trace.decision)
         self.assertIn('recommended_action', analyzed_trace.decision)
+
+
+class AgentAPITest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username='adminapi', email='adminapi@test.com', password='test1234',
+            role='admin', ward='Ward 5',
+        )
+        self.worker = User.objects.create_user(
+            username='workerapi', email='workerapi@test.com', password='test1234',
+            role='worker', ward='Ward 5', category='Water Supply',
+        )
+        self.citizen = User.objects.create_user(
+            username='citizenapi', email='citizenapi@test.com', password='test1234',
+            role='citizen', ward='Ward 5',
+        )
+        self.issue = Issue.objects.create(
+            title='Water leak', category='Water',
+            ward='Ward 5', reported_by=self.citizen,
+        )
+
+    def _auth(self, user):
+        refresh = RefreshToken.for_user(user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+    @patch('agent.views.process_complaint')
+    def test_admin_can_process(self, mock_process):
+        mock_process.return_value = {
+            'success': True, 'issue_id': self.issue.pk,
+            'action': 'ASSIGN_WORKER', 'execution': {},
+        }
+        self._auth(self.admin)
+        resp = self.client.post(f'/api/agent/process-complaint/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['success'])
+        mock_process.assert_called_once()
+
+    def test_unauthenticated_rejected(self):
+        resp = self.client.post(f'/api/agent/process-complaint/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_cannot_process_other_issue(self):
+        other = Issue.objects.create(
+            title='Other issue', category='Road',
+            ward='Ward 3', reported_by=self.citizen,
+        )
+        self._auth(self.citizen)
+        resp = self.client.post(f'/api/agent/process-complaint/{other.pk}/')
+        self.assertEqual(resp.status_code, 403)
+
+    @patch('agent.views.process_complaint')
+    def test_process_calls_orchestrator(self, mock_process):
+        mock_process.return_value = {
+            'success': True, 'issue_id': self.issue.pk,
+            'action': 'REVIEW', 'execution': {'success': True, 'message': 'Review'},
+        }
+        self._auth(self.admin)
+        self.client.post(f'/api/agent/process-complaint/{self.issue.pk}/')
+        mock_process.assert_called_once()
+
+    def test_trace_returns_chronological(self):
+        log_agent_action(self.issue, 'RECEIVED', input_data={'issue_id': self.issue.pk})
+        log_agent_action(self.issue, 'ANALYZED', decision={'action': 'ASSIGN_WORKER'})
+        log_agent_action(self.issue, 'COMPLETED')
+
+        self._auth(self.admin)
+        resp = self.client.get(f'/api/agent/trace/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['issue_id'], self.issue.pk)
+        self.assertEqual(len(resp.data['traces']), 3)
+        self.assertEqual(resp.data['traces'][0]['action'], 'RECEIVED')
+        self.assertEqual(resp.data['traces'][2]['action'], 'COMPLETED')
+
+    def test_status_returns_summary(self):
+        log_agent_action(self.issue, 'WORKER_ASSIGNED')
+        self._auth(self.admin)
+        resp = self.client.get(f'/api/agent/status/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['issue_id'], self.issue.pk)
+        self.assertEqual(resp.data['latest_agent_action'], 'WORKER_ASSIGNED')
+        self.assertEqual(resp.data['trace_count'], 1)
+        self.assertFalse(resp.data['agent_processing'])
+
+    def test_issue_not_found_returns_404(self):
+        self._auth(self.admin)
+        resp = self.client.post('/api/agent/process-complaint/99999/')
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.get('/api/agent/trace/99999/')
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.get('/api/agent/status/99999/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unauthorized_trace_access(self):
+        other_citizen = User.objects.create_user(
+            username='othercitizen', email='other@test.com', password='test1234',
+            role='citizen', ward='Ward 3',
+        )
+        self._auth(other_citizen)
+        resp = self.client.get(f'/api/agent/trace/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_unauthorized_status_access(self):
+        other_citizen = User.objects.create_user(
+            username='othercitizen2', email='other2@test.com', password='test1234',
+            role='citizen', ward='Ward 3',
+        )
+        self._auth(other_citizen)
+        resp = self.client.get(f'/api/agent/status/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_empty_trace_response(self):
+        self._auth(self.admin)
+        resp = self.client.get(f'/api/agent/trace/{self.issue.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['traces'], [])
+        self.assertEqual(resp.data['trace_count'] if 'trace_count' in resp.data else len(resp.data['traces']), 0)
