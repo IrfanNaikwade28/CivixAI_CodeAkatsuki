@@ -1,6 +1,8 @@
 from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -781,3 +783,266 @@ class AgentAPITest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['traces'], [])
         self.assertEqual(resp.data['trace_count'] if 'trace_count' in resp.data else len(resp.data['traces']), 0)
+
+
+class EscalationTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='escuser', email='esc@test.com', password='test1234',
+            role='citizen', ward='Ward Esc',
+        )
+
+    def _make_issue(self, priority='High', status='Assigned', hours_ago=30):
+        issue = Issue.objects.create(
+            title='Test issue', category='Water',
+            ward='Ward Esc', reported_by=self.user, priority=priority,
+            status=status,
+        )
+        Issue.objects.filter(pk=issue.pk).update(
+            reported_at=timezone.now() - timedelta(hours=hours_ago),
+            priority=priority,
+        )
+        issue.refresh_from_db()
+        return issue
+
+    def test_high_priority_escalation_threshold(self):
+        from agent.escalation import should_escalate
+        issue = self._make_issue(priority='High', hours_ago=25)
+        should, reason = should_escalate(issue)
+        self.assertTrue(should)
+        self.assertIn('High', reason)
+
+    def test_medium_priority_escalation_threshold(self):
+        from agent.escalation import should_escalate
+        issue = self._make_issue(priority='Medium', hours_ago=49)
+        should, reason = should_escalate(issue)
+        self.assertTrue(should)
+
+    def test_low_priority_escalation_threshold(self):
+        from agent.escalation import should_escalate
+        issue = self._make_issue(priority='Low', hours_ago=73)
+        should, reason = should_escalate(issue)
+        self.assertTrue(should)
+
+    def test_not_yet_escalated(self):
+        from agent.escalation import should_escalate
+        issue = self._make_issue(priority='High', hours_ago=10)
+        should, _ = should_escalate(issue)
+        self.assertFalse(should)
+
+    def test_escalate_complaint_success(self):
+        from agent.escalation import escalate_complaint
+        issue = self._make_issue(priority='High', hours_ago=25)
+        result = escalate_complaint(issue, reason='Test escalation')
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'ESCALATE')
+        self.assertTrue(AgentTrace.objects.filter(issue=issue, action='ESCALATION_INITIATED').exists())
+
+    def test_escalate_resolved_issue_rejected(self):
+        from agent.escalation import escalate_complaint
+        issue = self._make_issue(priority='High', status='Resolved', hours_ago=30)
+        result = escalate_complaint(issue)
+        self.assertFalse(result['success'])
+        self.assertIn('resolved', result['message'].lower())
+
+    def test_duplicate_escalation_prevented(self):
+        from agent.escalation import should_escalate, escalate_complaint
+        issue = self._make_issue(priority='High', hours_ago=25)
+        escalate_complaint(issue, reason='First escalation')
+        should, _ = should_escalate(issue)
+        self.assertFalse(should)
+
+
+class FollowUpTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='fuuser', email='fu@test.com', password='test1234',
+            role='citizen', ward='Ward Fu',
+        )
+
+    def _make_issue(self, status='Assigned', hours_ago=15):
+        issue = Issue.objects.create(
+            title='Test followup', category='Water',
+            ward='Ward Fu', reported_by=self.user, priority='Medium',
+            status=status,
+        )
+        Issue.objects.filter(pk=issue.pk).update(
+            assigned_at=timezone.now() - timedelta(hours=hours_ago),
+            reported_at=timezone.now() - timedelta(hours=hours_ago),
+        )
+        issue.refresh_from_db()
+        return issue
+
+    def test_follow_up_success(self):
+        from agent.followup import follow_up_complaint
+        issue = self._make_issue(status='Assigned', hours_ago=15)
+        result = follow_up_complaint(issue)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['action'], 'FOLLOW_UP')
+        self.assertTrue(AgentTrace.objects.filter(issue=issue, action='FOLLOW_UP_INITIATED').exists())
+
+    def test_follow_up_resolved_rejected(self):
+        from agent.followup import follow_up_complaint
+        issue = self._make_issue(status='Resolved', hours_ago=15)
+        result = follow_up_complaint(issue)
+        self.assertFalse(result['success'])
+        self.assertIn('resolved', result['message'].lower())
+
+    def test_follow_up_not_yet_due(self):
+        from agent.followup import should_follow_up
+        issue = self._make_issue(status='Assigned', hours_ago=5)
+        should, _ = should_follow_up(issue)
+        self.assertFalse(should)
+
+    def test_duplicate_followup_prevented(self):
+        from agent.followup import should_follow_up, follow_up_complaint
+        issue = self._make_issue(status='Assigned', hours_ago=15)
+        follow_up_complaint(issue)
+        should, _ = should_follow_up(issue)
+        self.assertFalse(should)
+
+
+class MonitoringTest(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='monuser', email='mon@test.com', password='test1234',
+            role='citizen', ward='Ward Mon',
+        )
+
+    def _make_issue(self, priority='Medium', status='Assigned', hours_ago=5):
+        issue = Issue.objects.create(
+            title='Monitor test', category='Water',
+            ward='Ward Mon', reported_by=self.user, priority=priority,
+            status=status,
+        )
+        Issue.objects.filter(pk=issue.pk).update(
+            reported_at=timezone.now() - timedelta(hours=hours_ago),
+            assigned_at=timezone.now() - timedelta(hours=hours_ago),
+            priority=priority,
+        )
+        issue.refresh_from_db()
+        return issue
+
+    def test_unresolved_issue_detected(self):
+        from agent.monitoring import monitor_complaints
+        self._make_issue(status='Assigned', hours_ago=5)
+        result = monitor_complaints()
+        self.assertTrue(result['success'])
+        self.assertGreaterEqual(result['processed'], 1)
+
+    def test_resolved_issue_ignored(self):
+        from agent.monitoring import monitor_complaints
+        self._make_issue(status='Resolved', hours_ago=50)
+        result = monitor_complaints()
+        self.assertEqual(result['escalations'], 0)
+        self.assertEqual(result['followups'], 0)
+
+    def test_closed_issue_ignored(self):
+        from agent.monitoring import monitor_complaints
+        self._make_issue(status='Closed', hours_ago=50)
+        result = monitor_complaints()
+        self.assertEqual(result['escalations'], 0)
+
+    def test_escalation_takes_precedence(self):
+        from agent.monitoring import monitor_complaints
+        # High priority, 25 hours old — should escalate, not follow up
+        self._make_issue(priority='High', status='Assigned', hours_ago=25)
+        result = monitor_complaints()
+        self.assertEqual(result['escalations'], 1)
+        self.assertEqual(result['followups'], 0)
+
+    def test_followup_triggered(self):
+        from agent.monitoring import monitor_complaints
+        # Assigned issue, 15 hours old — should follow up
+        self._make_issue(priority='Low', status='Assigned', hours_ago=15)
+        result = monitor_complaints()
+        self.assertEqual(result['followups'], 1)
+
+    def test_one_failing_issue_does_not_stop_others(self):
+        from agent.monitoring import monitor_complaints
+        from agent.escalation import escalate_complaint
+        # Create two issues, one will fail in escalate_complaint
+        good = self._make_issue(priority='High', status='Assigned', hours_ago=25)
+        bad = self._make_issue(priority='High', status='Assigned', hours_ago=25)
+
+        # Patch escalate_complaint to fail only for the bad issue
+        original = escalate_complaint
+        def patched_escalate(issue, reason=None):
+            if issue.pk == bad.pk:
+                raise Exception('Simulated failure')
+            return original(issue, reason=reason)
+
+        with patch('agent.monitoring.escalate_complaint', side_effect=patched_escalate):
+            result = monitor_complaints()
+
+        self.assertEqual(result['errors'], 1)
+        self.assertGreaterEqual(result['processed'], 2)
+
+    def test_monitoring_summary_correct(self):
+        from agent.monitoring import monitor_complaints
+        # 1 escalation, 1 follow-up, 1 skipped (fresh issue)
+        self._make_issue(priority='High', status='Assigned', hours_ago=25)
+        self._make_issue(priority='Low', status='Assigned', hours_ago=15)
+        self._make_issue(priority='Medium', status='Submitted', hours_ago=2)
+        result = monitor_complaints()
+        self.assertTrue(result['success'])
+        self.assertEqual(result['escalations'], 1)
+        self.assertEqual(result['followups'], 1)
+        self.assertEqual(result['skipped'], 1)
+
+    def test_submitted_issue_not_followed_up(self):
+        from agent.monitoring import monitor_complaints
+        # Submitted (not Assigned/In Progress) should not trigger follow-up
+        self._make_issue(priority='Low', status='Submitted', hours_ago=15)
+        result = monitor_complaints()
+        self.assertEqual(result['followups'], 0)
+
+
+class MonitorAPITest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username='monadmin', email='monadmin@test.com', password='test1234',
+            role='admin', ward='Ward MonApi',
+        )
+        self.citizen = User.objects.create_user(
+            username='moncitizen', email='moncitizen@test.com', password='test1234',
+            role='citizen', ward='Ward MonApi',
+        )
+
+    def _auth(self, user):
+        refresh = RefreshToken.for_user(user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
+
+    @patch('agent.views.monitor_complaints')
+    def test_admin_can_trigger_monitor(self, mock_monitor):
+        mock_monitor.return_value = {
+            'success': True, 'processed': 0, 'followups': 0,
+            'escalations': 0, 'skipped': 0, 'errors': 0,
+        }
+        self._auth(self.admin)
+        resp = self.client.post('/api/agent/monitor/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['success'])
+        mock_monitor.assert_called_once()
+
+    def test_non_admin_cannot_trigger_monitor(self):
+        self._auth(self.citizen)
+        resp = self.client.post('/api/agent/monitor/')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_unauthenticated_rejected(self):
+        resp = self.client.post('/api/agent/monitor/')
+        self.assertEqual(resp.status_code, 401)
+
+    @patch('agent.views.monitor_complaints')
+    def test_monitor_endpoint_returns_summary(self, mock_monitor):
+        mock_monitor.return_value = {
+            'success': True, 'processed': 5, 'followups': 2,
+            'escalations': 1, 'skipped': 2, 'errors': 0,
+        }
+        self._auth(self.admin)
+        resp = self.client.post('/api/agent/monitor/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['processed'], 5)
+        self.assertEqual(resp.data['escalations'], 1)

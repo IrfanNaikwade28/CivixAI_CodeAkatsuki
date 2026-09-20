@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from issues.models import Issue
 from agent.models import AgentTrace
 from agent.orchestrator import process_complaint
+from agent.monitoring import monitor_complaints
 from agent.serializers import (
     AgentTraceSerializer,
     AgentProcessResultSerializer,
@@ -125,3 +126,17 @@ def agent_status_view(request, issue_id):
     }
     serializer = AgentStatusSerializer(data)
     return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def monitor_view(request):
+    """POST /api/agent/monitor/"""
+    if request.user.role != 'admin':
+        return Response(
+            {'success': False, 'message': 'Admin access required'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    result = monitor_complaints()
+    return Response(result)
