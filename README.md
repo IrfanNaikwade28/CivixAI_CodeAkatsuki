@@ -1,6 +1,6 @@
 # CivixAI
 
-A smart agentic civic issue management platform built for the hackathon.
+Agentic AI for Civic Issue Resolution
 
 ## Overview
 
