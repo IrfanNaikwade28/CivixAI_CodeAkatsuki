@@ -1,4 +1,5 @@
 from unittest.mock import patch, MagicMock
+import os
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -1046,3 +1047,53 @@ class MonitorAPITest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['processed'], 5)
         self.assertEqual(resp.data['escalations'], 1)
+
+
+class HealthCheckTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_health_returns_200(self):
+        resp = self.client.get('/api/health/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_health_response_correct(self):
+        resp = self.client.get('/api/health/')
+        import json
+        data = json.loads(resp.content)
+        self.assertEqual(data, {'status': 'ok'})
+
+    def test_root_health_still_works(self):
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)
+        import json
+        data = json.loads(resp.content)
+        self.assertEqual(data, {'status': 'ok'})
+
+
+class DatabaseConfigTest(TestCase):
+    def test_sqlite_fallback_when_no_database_url(self):
+        from django.conf import settings
+        # In test env, DATABASE_URL is not set, so should use SQLite
+        self.assertEqual(settings.DATABASES['default']['ENGINE'], 'django.db.backends.sqlite3')
+
+    @patch.dict(os.environ, {'DATABASE_URL': 'postgres://testuser:testpass@localhost:5432/testdb'})
+    def test_postgresql_config_from_env(self):
+        from urllib.parse import urlparse
+        import importlib
+        import cityflow.settings as settings_mod
+
+        url = urlparse(os.environ['DATABASE_URL'])
+        # Verify URL parsing works correctly
+        self.assertEqual(url.username, 'testuser')
+        self.assertEqual(url.password, 'testpass')
+        self.assertEqual(url.hostname, 'localhost')
+        self.assertEqual(url.port, 5432)
+        self.assertEqual(url.path, '/testdb')
+
+    @patch.dict(os.environ, {'DATABASE_URL': 'postgres://user:pass@db.example.com:5432/civixai'})
+    def test_postgresql_url_parsing_edge_cases(self):
+        from urllib.parse import urlparse
+        url = urlparse(os.environ['DATABASE_URL'])
+        self.assertEqual(url.hostname, 'db.example.com')
+        self.assertEqual(url.path[1:], 'civixai')
