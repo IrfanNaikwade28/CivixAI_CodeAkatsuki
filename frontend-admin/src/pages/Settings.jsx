@@ -139,7 +139,7 @@ export default function Settings() {
             { label: 'Platform', value: 'CivixAI v1.0' },
             { label: 'Municipality', value: 'Ichalkaranji Municipal Corporation' },
             { label: 'Mode', value: 'Live API' },
-            { label: 'Backend', value: 'Django REST Framework — http://localhost:8000' },
+            { label: 'Backend', value: 'Django REST Framework — Render' },
             { label: 'Version', value: '1.0.0 — Hackathon MVP' },
           ].map(row => (
             <div key={row.label} className="flex justify-between py-2 border-b border-gray-50 last:border-0">

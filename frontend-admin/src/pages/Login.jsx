@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Shield, Loader2, Zap } from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
 
 export default function Login() {
   const { login } = useApp();
@@ -78,14 +78,18 @@ export default function Login() {
           </form>
 
           {/* Demo credentials */}
-          <button
-            type="button"
-            onClick={() => { setEmail('admin@civixai.gov.in'); setPassword('admin1234'); }}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-medium text-blue-700 transition-colors cursor-pointer"
-          >
-            <Zap size={13} />
-            Use Demo Credentials
-          </button>
+          <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+            <p className="text-xs font-bold text-blue-700 mb-2">Demo Credentials</p>
+            <button
+              type="button"
+              onClick={() => { setEmail('admin@civixai.gov.in'); setPassword('admin1234'); }}
+              className="w-full flex items-center justify-between px-3 py-2 bg-white hover:bg-blue-50 border border-blue-200 rounded-lg text-left transition-colors cursor-pointer mb-2"
+            >
+              <span className="text-sm font-medium text-gray-800">Admin</span>
+              <span className="text-xs text-gray-500">admin@civixai.gov.in</span>
+            </button>
+            <p className="text-[10px] text-blue-600/70 mt-1">Password: admin1234</p>
+          </div>
         </div>
 
         <p className="text-center text-blue-400/60 text-xs mt-6">

@@ -43,7 +43,7 @@ export default function Login({ onRegister }) {
           <Building2 size={32} color="#fff" />
         </View>
         <Text style={styles.appName}>CivixAI</Text>
-        <Text style={styles.tagline}>Smart Municipal Management</Text>
+        <Text style={styles.tagline}>Agentic AI for Civic Issue Resolution</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -116,26 +116,28 @@ export default function Login({ onRegister }) {
 
           {/* Quick-fill credentials */}
           <View style={styles.demoBox}>
-            <Text style={styles.demoTitle}>Quick Login (password: 1234)</Text>
+            <Text style={styles.demoTitle}>Quick Login (password: Civix@2024)</Text>
             {(role === 'citizen'
               ? [
-                  { name: 'Rajesh Patil',  email: 'rajesh@example.com' },
-                  { name: 'Sunita Mane',   email: 'sunita@example.com' },
-                  { name: 'Amol Kumbhar',  email: 'amol@example.com' },
+                  { name: 'Priya Sharma',   email: 'priya.sharma@example.com' },
+                  { name: 'Amit Jadhav',    email: 'amit.jadhav@example.com' },
+                  { name: 'Meena Patil',    email: 'meena.patil@example.com' },
+                  { name: 'Rahul Desai',    email: 'rahul.desai@example.com' },
                 ]
               : [
-                  { name: 'Dnyaneshwar Jadhav', email: 'dnyanesh@ichalkaranji.gov.in' },
-                  { name: 'Vishwas Kamble',     email: 'vishwas@ichalkaranji.gov.in' },
-                  { name: 'Santosh Chougule',   email: 'santosh@ichalkaranji.gov.in' },
+                  { name: 'Suresh Kumar',    email: 'suresh.kumar@ichalkaranji.gov.in',    sub: 'Water' },
+                  { name: 'Anjali More',     email: 'anjali.more@ichalkaranji.gov.in',     sub: 'Sanitation' },
+                  { name: 'Vijay Sangle',    email: 'vijay.sangle@ichalkaranji.gov.in',    sub: 'Road' },
+                  { name: 'Kavita Bhosale',  email: 'kavita.bhosale@ichalkaranji.gov.in',  sub: 'Electricity' },
                 ]
             ).map(c => (
               <TouchableOpacity
                 key={c.email}
-                onPress={() => { setEmail(c.email); setPassword('1234'); }}
+                onPress={() => { setEmail(c.email); setPassword('Civix@2024'); }}
                 style={styles.demoRow}
               >
                 <Text style={styles.demoText}>{c.name}</Text>
-                <Text style={styles.demoEmail}>{c.email}</Text>
+                <Text style={styles.demoEmail}>{c.email}{c.sub ? `  ·  ${c.sub}` : ''}</Text>
               </TouchableOpacity>
             ))}
           </View>
