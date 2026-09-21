@@ -2,6 +2,10 @@ from unittest.mock import patch, MagicMock
 from django.test import TestCase
 from io import BytesIO
 
+from PIL import Image
+import io
+import json
+
 
 class DetectIssueTimeoutTest(TestCase):
     @patch('ai.services._get_client')
@@ -14,7 +18,7 @@ class DetectIssueTimeoutTest(TestCase):
         mock_get_client.return_value = mock_client
 
         from ai.services import detect_issue
-        fake_image = BytesIO(b'\xff\xd8\xff\xe0')
+        fake_image = BytesIO(_make_jpeg())
         fake_image.content_type = 'image/jpeg'
         fake_image.name = 'test.jpg'
 
@@ -32,7 +36,7 @@ class DetectIssueTimeoutTest(TestCase):
         mock_get_client.return_value = mock_client
 
         from ai.services import detect_issue
-        fake_image = BytesIO(b'\xff\xd8\xff\xe0')
+        fake_image = BytesIO(_make_jpeg())
         fake_image.content_type = 'image/jpeg'
         fake_image.name = 'test.jpg'
 
@@ -67,3 +71,66 @@ class DetectIssueTimeoutTest(TestCase):
             before_bytes=b'\xff\xd8\xff\xe0',
         )
         self.assertIsNone(result)
+
+
+def _make_jpeg(width=100, height=100):
+    """Helper: create valid JPEG bytes."""
+    img = Image.new('RGB', (width, height), (255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format='JPEG')
+    return buf.getvalue()
+
+
+class PreprocessImageTest(TestCase):
+    def test_output_is_jpeg(self):
+        from ai.services import _preprocess_image
+        result = _preprocess_image(_make_jpeg())
+        img = Image.open(io.BytesIO(result))
+        self.assertEqual(img.format, 'JPEG')
+
+    def test_large_image_resized(self):
+        from ai.services import _preprocess_image
+        result = _preprocess_image(_make_jpeg(3000, 2000))
+        img = Image.open(io.BytesIO(result))
+        self.assertEqual(max(img.size), 1280)
+        self.assertLess(min(img.size), 1280)
+
+    def test_small_image_unchanged(self):
+        from ai.services import _preprocess_image
+        result = _preprocess_image(_make_jpeg(80, 60))
+        img = Image.open(io.BytesIO(result))
+        self.assertEqual(img.size, (80, 60))
+
+    def test_output_smaller_than_large_original(self):
+        from ai.services import _preprocess_image
+        original = _make_jpeg(3000, 2000)
+        result = _preprocess_image(original)
+        self.assertLess(len(result), len(original))
+
+
+class DetectIssuePreprocessTest(TestCase):
+    @patch('ai.services._get_client')
+    def test_sends_processed_jpeg_to_gemini(self, mock_get_client):
+        from ai.services import detect_issue
+
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = json.dumps({
+            'category': 'Road', 'title': 'Pothole',
+            'description': 'Big hole.', 'confidence': 0.9,
+        })
+        mock_client.models.generate_content.return_value = mock_response
+        mock_get_client.return_value = mock_client
+
+        fake_image = BytesIO(_make_jpeg(3000, 2000))
+        fake_image.content_type = 'image/jpeg'
+        result = detect_issue(fake_image)
+
+        self.assertIsNotNone(result)
+        call_args = mock_client.models.generate_content.call_args
+        contents = call_args.kwargs.get('contents') or call_args[1].get('contents')
+        part = contents[0]
+
+        self.assertEqual(part.inline_data.mime_type, 'image/jpeg')
+        img = Image.open(io.BytesIO(part.inline_data.data))
+        self.assertEqual(max(img.size), 1280)

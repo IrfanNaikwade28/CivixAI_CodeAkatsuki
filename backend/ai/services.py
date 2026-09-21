@@ -6,14 +6,31 @@ Two features:
 
 Uses the google-genai SDK (replaces deprecated google-generativeai).
 """
+import io
 import json
 import logging
+
+from PIL import Image
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 _client = None
+
+
+def _preprocess_image(image_bytes: bytes) -> bytes:
+    """Resize and compress an image to reduce payload size for Gemini."""
+    image = Image.open(io.BytesIO(image_bytes))
+    image = image.convert("RGB")
+
+    max_dimension = 1280
+    if max(image.size) > max_dimension:
+        image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=75, optimize=True)
+    return output.getvalue()
 
 
 def _get_client():
@@ -26,7 +43,10 @@ def _get_client():
         from google.genai import types
         _client = genai.Client(
             api_key=current_key,
-            http_options=types.HttpOptions(timeout=20),
+            http_options=types.HttpOptions(
+                timeout=20,
+                retry_options=types.HttpRetryOptions(attempts=1),
+            ),
         )
         _client._civixai_api_key = current_key
     return _client
@@ -58,7 +78,7 @@ def detect_issue(image_file) -> dict | None:
         client = _get_client()
 
         image_bytes = image_file.read()
-        mime_type = getattr(image_file, 'content_type', 'image/jpeg')
+        processed_bytes = _preprocess_image(image_bytes)
 
         prompt = """You are a municipal issue classifier for Ichalkaranji, Maharashtra, India.
 Analyze this image carefully and identify any civic/municipal problems visible.
@@ -76,7 +96,7 @@ If no civic issue is visible, use category "Public Facilities" with low confiden
         response = client.models.generate_content(
             model='gemini-flash-lite-latest',
             contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                types.Part.from_bytes(data=processed_bytes, mime_type='image/jpeg'),
                 prompt,
             ],
         )
