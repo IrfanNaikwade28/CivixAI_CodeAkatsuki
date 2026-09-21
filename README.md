@@ -2,9 +2,9 @@
 
 Agentic AI for Civic Issue Resolution — Ichalkaranji Municipal Corporation, Maharashtra, India
 
-**Download APK:** (https://drive.google.com/drive/folders/1-fEsYer28j4Znnks1D6DLUa7r8Xjgz4Y?usp=sharing)
+**Download APK:** https://drive.google.com/drive/folders/1-fEsYer28j4Znnks1D6DLUa7r8Xjgz4Y?usp=sharing
 
-**Admin Web Link:** (https://civix-ai-admin.vercel.app/)
+**Admin Web Link:** https://civix-ai-admin.vercel.app/
 
 ## Demo Video
 https://github.com/user-attachments/assets/c42a0b31-dcee-4272-b205-3e9bb19d0065
