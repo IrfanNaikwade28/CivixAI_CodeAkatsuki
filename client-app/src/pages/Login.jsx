@@ -129,6 +129,10 @@ export default function Login({ onRegister }) {
                   { name: 'Anjali More',     email: 'anjali.more@ichalkaranji.gov.in',     sub: 'Sanitation' },
                   { name: 'Vijay Sangle',    email: 'vijay.sangle@ichalkaranji.gov.in',    sub: 'Road' },
                   { name: 'Kavita Bhosale',  email: 'kavita.bhosale@ichalkaranji.gov.in',  sub: 'Electricity' },
+                  { name: 'Prakash Gaikwad', email: 'prakash.gaikwad@ichalkaranji.gov.in', sub: 'Traffic' },
+                  { name: 'Sneha Jadhav',    email: 'sneha.jadhav@ichalkaranji.gov.in',    sub: 'Public Facilities' },
+                  { name: 'Manoj Shinde',    email: 'manoj.shinde@ichalkaranji.gov.in',    sub: 'Road' },
+                  { name: 'Pooja Patil',     email: 'pooja.patil@ichalkaranji.gov.in',     sub: 'Water' },
                 ]
             ).map(c => (
               <TouchableOpacity

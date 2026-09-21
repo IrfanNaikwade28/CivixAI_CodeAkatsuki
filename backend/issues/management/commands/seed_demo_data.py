@@ -140,6 +140,66 @@ WORKERS = [
         'landmark': 'Near LIC Office',
         'joined_date': date(2023, 10, 5),
     },
+    {
+        'username': 'prakash_gaikwad',
+        'email': 'prakash.gaikwad@ichalkaranji.gov.in',
+        'first_name': 'Prakash',
+        'last_name': 'Gaikwad',
+        'password': 'Civix@2024',
+        'phone': '9765432104',
+        'ward': 'Ward 4',
+        'category': 'Traffic Control',
+        'gender': 'Male',
+        'dob': date(1987, 4, 18),
+        'street': '14, New Shahupuri',
+        'landmark': 'Near Bus Stand',
+        'joined_date': date(2023, 7, 12),
+    },
+    {
+        'username': 'sneha_jadhav',
+        'email': 'sneha.jadhav@ichalkaranji.gov.in',
+        'first_name': 'Sneha',
+        'last_name': 'Jadhav',
+        'password': 'Civix@2024',
+        'phone': '9765432105',
+        'ward': 'Ward 8',
+        'category': 'Maintenance',
+        'gender': 'Female',
+        'dob': date(1993, 8, 7),
+        'street': '27, Rajarampuri',
+        'landmark': 'Near Shivaji University',
+        'joined_date': date(2024, 1, 8),
+    },
+    {
+        'username': 'manoj_shinde',
+        'email': 'manoj.shinde@ichalkaranji.gov.in',
+        'first_name': 'Manoj',
+        'last_name': 'Shinde',
+        'password': 'Civix@2024',
+        'phone': '9765432106',
+        'ward': 'Ward 2',
+        'category': 'Infrastructure',
+        'gender': 'Male',
+        'dob': date(1984, 2, 14),
+        'street': '11, Vidyanagar',
+        'landmark': 'Near College Road',
+        'joined_date': date(2023, 9, 20),
+    },
+    {
+        'username': 'pooja_patil_w',
+        'email': 'pooja.patil@ichalkaranji.gov.in',
+        'first_name': 'Pooja',
+        'last_name': 'Patil',
+        'password': 'Civix@2024',
+        'phone': '9765432107',
+        'ward': 'Ward 7',
+        'category': 'Water Supply',
+        'gender': 'Female',
+        'dob': date(1991, 6, 22),
+        'street': '5, Jadhav Nagar',
+        'landmark': 'Near Water Works',
+        'joined_date': date(2024, 2, 14),
+    },
 ]
 
 ADMIN = {
@@ -606,4 +666,8 @@ class Command(BaseCommand):
     anjali.more@ichalkaranji.gov.in     /  Civix@2024  (Sanitation)
     vijay.sangle@ichalkaranji.gov.in    /  Civix@2024  (Road)
     kavita.bhosale@ichalkaranji.gov.in  /  Civix@2024  (Electricity)
+    prakash.gaikwad@ichalkaranji.gov.in /  Civix@2024  (Traffic)
+    sneha.jadhav@ichalkaranji.gov.in    /  Civix@2024  (Public Facilities)
+    manoj.shinde@ichalkaranji.gov.in    /  Civix@2024  (Road)
+    pooja.patil@ichalkaranji.gov.in     /  Civix@2024  (Water)
 """))
