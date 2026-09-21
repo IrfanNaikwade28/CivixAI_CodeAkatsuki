@@ -23,7 +23,11 @@ def _get_client():
     current_key = settings.GEMINI_API_KEY
     if _client is None or getattr(_client, '_civixai_api_key', None) != current_key:
         from google import genai
-        _client = genai.Client(api_key=current_key)
+        from google.genai import types
+        _client = genai.Client(
+            api_key=current_key,
+            http_options=types.HttpOptions(timeout=20),
+        )
         _client._civixai_api_key = current_key
     return _client
 
