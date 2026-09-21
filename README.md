@@ -2,6 +2,8 @@
 
 Agentic AI for Civic Issue Resolution — Ichalkaranji Municipal Corporation, Maharashtra, India
 
+**Download APK:** [Google Drive](https://drive.google.com/drive/folders/1-fEsYer28j4Znnks1D6DLUa7r8Xjgz4Y?usp=sharing)
+
 ## Overview
 
 CivixAI is a full-stack platform that enables citizens to report municipal issues, track their resolution, and gives administrators real-time visibility — powered by AI for automated issue detection and completion verification.
