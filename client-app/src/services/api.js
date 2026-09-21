@@ -7,11 +7,10 @@ import * as SecureStore from 'expo-secure-store';
 export const BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:8000/api';
 
-// ─── Axios instance ──────────────────────────────────────────────────────────
+// ─── Axios instance (JSON only) ─────────────────────────────────────────────
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 30000,
-  // No default Content-Type — set per-request so multipart calls are not corrupted.
 });
 
 // ─── Token helpers ───────────────────────────────────────────────────────────
@@ -29,11 +28,10 @@ export const tokenStorage = {
   ]),
 };
 
-// ─── Request interceptor — attach Bearer token ───────────────────────────────
+// ─── Request interceptor — attach Bearer token + JSON Content-Type ───────────
 api.interceptors.request.use(async (config) => {
   const token = await tokenStorage.getAccess();
   if (token) config.headers.Authorization = `Bearer ${token}`;
-  // Default to JSON for non-multipart requests
   if (!config.headers['Content-Type']) {
     config.headers['Content-Type'] = 'application/json';
   }
@@ -84,6 +82,56 @@ api.interceptors.response.use(
   }
 );
 
+// ─── Native fetch for FormData (multipart) uploads ──────────────────────────
+// Axios corrupts React Native FormData. Use native fetch for all file uploads.
+async function multipartFetch(path, options = {}) {
+  const token = await tokenStorage.getAccess();
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Do NOT set Content-Type — React Native fetch adds the multipart boundary.
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: { ...headers, ...options.headers },
+  });
+
+  if (res.status === 401) {
+    // Attempt token refresh and retry once
+    try {
+      const refresh = await tokenStorage.getRefresh();
+      if (!refresh) throw new Error('No refresh token');
+      const refreshRes = await fetch(`${BASE_URL}/auth/token/refresh/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+      });
+      const refreshData = await refreshRes.json();
+      await tokenStorage.setAccess(refreshData.access);
+      headers['Authorization'] = `Bearer ${refreshData.access}`;
+      const retryRes = await fetch(`${BASE_URL}${path}`, {
+        ...options,
+        headers: { ...headers, ...options.headers },
+      });
+      if (!retryRes.ok) {
+        const err = new Error(`HTTP ${retryRes.status}`);
+        err.response = { status: retryRes.status, data: await retryRes.json().catch(() => null) };
+        throw err;
+      }
+      return { data: await retryRes.json(), status: retryRes.status };
+    } catch (err) {
+      await tokenStorage.clear();
+      throw err;
+    }
+  }
+
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.response = { status: res.status, data: await res.json().catch(() => null) };
+    throw err;
+  }
+  return { data: await res.json(), status: res.status };
+}
+
 // ─── Auth endpoints ──────────────────────────────────────────────────────────
 export const authAPI = {
   login:          (email, password) => api.post('/auth/login/', { email, password }),
@@ -93,8 +141,9 @@ export const authAPI = {
   changePassword: (current_password, new_password) =>
     api.post('/auth/change-password/', { current_password, new_password }),
   uploadProfilePhoto: (formData) =>
-    api.post('/auth/profile-photo/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    multipartFetch('/auth/profile-photo/', {
+      method: 'POST',
+      body: formData,
     }),
   updateProfile: (data) => api.patch('/auth/profile/', data),
 };
@@ -105,11 +154,13 @@ export const issuesAPI = {
   myIssues:      ()            => api.get('/issues/my/'),
   assignedTasks: ()            => api.get('/issues/assigned/'),
   detail:        (id)          => api.get(`/issues/${id}/`),
-  create:        (formData)    => api.post('/issues/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+  create:        (formData)    => multipartFetch('/issues/', {
+    method: 'POST',
+    body: formData,
   }),
-  patch:         (id, formData) => api.patch(`/issues/${id}/`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
+  patch:         (id, formData) => multipartFetch(`/issues/${id}/`, {
+    method: 'PATCH',
+    body: formData,
   }),
   upvote:        (id)          => api.post(`/issues/${id}/upvote/`),
   addComment:    (id, text)    => api.post(`/issues/${id}/comments/`, { text }),
@@ -118,9 +169,9 @@ export const issuesAPI = {
 
 // ─── AI endpoints ────────────────────────────────────────────────────────────
 export const aiAPI = {
-  detectIssue: (formData) => api.post('/ai/detect-issue/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 60000, // AI call can take longer
+  detectIssue: (formData) => multipartFetch('/ai/detect-issue/', {
+    method: 'POST',
+    body: formData,
   }),
   verifyCompletion: (issueId) => api.post(`/ai/verify-completion/${issueId}/`),
   previewCompletion: (issueId, photoUri) => {
@@ -129,9 +180,9 @@ export const aiAPI = {
     const ext = filename.split('.').pop()?.toLowerCase() || 'jpg';
     const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
     formData.append('completion_photo', { uri: photoUri, name: filename, type: mime });
-    return api.post(`/ai/preview-completion/${issueId}/`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000,
+    return multipartFetch(`/ai/preview-completion/${issueId}/`, {
+      method: 'POST',
+      body: formData,
     });
   },
 };

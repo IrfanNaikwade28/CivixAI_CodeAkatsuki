@@ -1,12 +1,22 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  ScrollView, Image, ActivityIndicator, KeyboardAvoidingView, Platform,
+  ScrollView, Image, ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { useClient } from '../context/ClientContext';
-import { ArrowLeft, MapPin, Camera, ChevronDown, Eye, Lock, CheckCircle, Cpu } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Camera, ChevronDown, Eye, Lock, CheckCircle, Cpu, Mic, Square, Play, Pause, Trash2 } from 'lucide-react-native';
 import GeoCamera from '../components/shared/GeoCamera';
 import { aiAPI } from '../services/api';
+
+let requestRecordingPermissions = null;
+let setAudioModeAsync = null;
+try {
+  const audioMod = require('expo-audio');
+  requestRecordingPermissions = audioMod.requestRecordingPermissionsAsync;
+  setAudioModeAsync = audioMod.setAudioModeAsync;
+} catch (e) {
+  // expo-audio not available
+}
 
 const categories = ['Road', 'Water', 'Electricity', 'Garbage', 'Traffic', 'Public Facilities'];
 const categoryIcons = {
@@ -35,6 +45,15 @@ export default function ReportIssue({ onBack, onSuccess }) {
   // AI detect state: idle | scanning | done | error
   const [aiState, setAiState] = useState('idle');
   const [aiResult, setAiResult] = useState(null);
+
+  // Audio recording state
+  const [audioUri, setAudioUri] = useState(null);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const recorderRef = useRef(null);
+  const playerRef = useRef(null);
+  const audioTimerRef = useRef(null);
 
   const handleCameraCapture = async ({ photo, location }) => {
     setCapturedPhoto(photo);
@@ -81,6 +100,7 @@ export default function ReportIssue({ onBack, onSuccess }) {
       const id = await submitComplaint({
         ...form,
         image: capturedPhoto,
+        audio: audioUri,
         lat: capturedLocation?.lat,
         lng: capturedLocation?.lng,
       });
@@ -93,6 +113,115 @@ export default function ReportIssue({ onBack, onSuccess }) {
   };
 
   const isStep2Valid = form.category && form.title.trim() && form.description.trim();
+
+  // ── Audio recording helpers (expo-audio) ──────────────────────────────────
+  const startRecording = async () => {
+    if (!requestRecordingPermissions || !setAudioModeAsync) {
+      Alert.alert('Not Available', 'Audio recording requires a development build.');
+      return;
+    }
+    try {
+      const { status } = await requestRecordingPermissions();
+      if (status !== 'granted') {
+        Alert.alert('Permission', 'Microphone permission is needed to record voice evidence.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true });
+      const { AudioRecorder } = require('expo-audio').AudioModule;
+      const recorder = new AudioRecorder({});
+
+      recorder.record();
+      recorderRef.current = recorder;
+      setIsRecording(true);
+      setAudioUri(null);
+      setAudioPlaying(false);
+      setRecordingDuration(0);
+      audioTimerRef.current = setInterval(() => {
+        if (recorderRef.current) {
+          setRecordingDuration(Math.floor(recorderRef.current.currentTime));
+        }
+      }, 500);
+    } catch (err) {
+      console.error('Failed to start recording:', err);
+      Alert.alert('Error', 'Could not start recording.');
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      if (audioTimerRef.current) {
+        clearInterval(audioTimerRef.current);
+        audioTimerRef.current = null;
+      }
+      if (!recorderRef.current) return;
+      await recorderRef.current.stop();
+      const uri = recorderRef.current.uri;
+      recorderRef.current = null;
+      setIsRecording(false);
+      setAudioUri(uri);
+      setRecordingDuration(0);
+      await setAudioModeAsync({ allowsRecording: false });
+    } catch (err) {
+      console.error('Failed to stop recording:', err);
+    }
+  };
+
+  const playAudio = async () => {
+    try {
+      if (!audioUri) return;
+      const { createAudioPlayer } = require('expo-audio');
+      if (playerRef.current) {
+        playerRef.current.release();
+      }
+      const player = createAudioPlayer(audioUri);
+      playerRef.current = player;
+      player.play();
+      setAudioPlaying(true);
+      player.addListener('playbackStatusUpdate', (status) => {
+        if (status.didJustFinish) {
+          setAudioPlaying(false);
+          player.release();
+          playerRef.current = null;
+        }
+      });
+    } catch (err) {
+      console.error('Failed to play audio:', err);
+    }
+  };
+
+  const pauseAudio = async () => {
+    try {
+      if (playerRef.current) {
+        playerRef.current.pause();
+        setAudioPlaying(false);
+      }
+    } catch (err) {
+      console.error('Failed to pause audio:', err);
+    }
+  };
+
+  const deleteAudio = async () => {
+    try {
+      if (playerRef.current) {
+        playerRef.current.release();
+        playerRef.current = null;
+      }
+      if (recorderRef.current) {
+        await recorderRef.current.stop();
+        recorderRef.current = null;
+      }
+      if (audioTimerRef.current) {
+        clearInterval(audioTimerRef.current);
+        audioTimerRef.current = null;
+      }
+      setAudioUri(null);
+      setAudioPlaying(false);
+      setIsRecording(false);
+      setRecordingDuration(0);
+    } catch (err) {
+      console.error('Failed to delete audio:', err);
+    }
+  };
 
   return (
     <>
@@ -352,6 +481,40 @@ export default function ReportIssue({ onBack, onSuccess }) {
                 </TouchableOpacity>
               </View>
 
+              {/* Voice Evidence (Optional) */}
+              <Text style={[styles.fieldLabel, { marginTop: 16 }]}>VOICE EVIDENCE (OPTIONAL)</Text>
+              <View style={styles.voiceSection}>
+                {!audioUri && !isRecording && (
+                  <TouchableOpacity style={styles.voiceRecordBtn} onPress={startRecording}>
+                    <Mic size={18} color="#2563eb" />
+                    <Text style={styles.voiceRecordText}>Record Voice Note</Text>
+                  </TouchableOpacity>
+                )}
+                {isRecording && (
+                  <View style={styles.voiceRecordingBox}>
+                    <View style={styles.voiceRecordingDot} />
+                    <Text style={styles.voiceRecordingText}>Recording... {recordingDuration}s</Text>
+                    <TouchableOpacity style={styles.voiceStopBtn} onPress={stopRecording}>
+                      <Square size={14} color="#fff" />
+                      <Text style={styles.voiceStopText}>Stop</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {audioUri && !isRecording && (
+                  <View style={styles.voicePlaybackBox}>
+                    <View style={styles.voicePlaybackControls}>
+                      <TouchableOpacity style={styles.voicePlayBtn} onPress={audioPlaying ? pauseAudio : playAudio}>
+                        {audioPlaying ? <Pause size={16} color="#fff" /> : <Play size={16} color="#fff" />}
+                      </TouchableOpacity>
+                      <Text style={styles.voicePlaybackText}>{audioPlaying ? 'Playing...' : 'Voice recorded'}</Text>
+                      <TouchableOpacity style={styles.voiceDeleteBtn} onPress={deleteAudio}>
+                        <Trash2 size={14} color="#ef4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+
               {/* Summary */}
               <View style={styles.summaryBox}>
                 <Text style={styles.summaryLabel}>ISSUE SUMMARY</Text>
@@ -479,4 +642,17 @@ const styles = StyleSheet.create({
   aiBoxRed: { backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
   aiTitleRed: { fontSize: 11, fontWeight: '700', color: '#b91c1c' },
   aiSubRed: { fontSize: 11, color: '#ef4444', marginTop: 2 },
+  voiceSection: { marginTop: 6 },
+  voiceRecordBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 2, borderStyle: 'dashed', borderColor: '#bfdbfe', borderRadius: 14, paddingVertical: 16, backgroundColor: '#eff6ff' },
+  voiceRecordText: { fontSize: 13, fontWeight: '600', color: '#2563eb' },
+  voiceRecordingBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  voiceRecordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#ef4444' },
+  voiceRecordingText: { flex: 1, fontSize: 13, fontWeight: '500', color: '#b91c1c' },
+  voiceStopBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ef4444', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  voiceStopText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  voicePlaybackBox: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  voicePlaybackControls: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  voicePlayBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#16a34a', alignItems: 'center', justifyContent: 'center' },
+  voicePlaybackText: { flex: 1, fontSize: 13, fontWeight: '500', color: '#15803d' },
+  voiceDeleteBtn: { padding: 8 },
 });

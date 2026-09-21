@@ -207,9 +207,12 @@ export default function AgentActivityPanel({ issueId }) {
     }
   };
 
-  // Find the ANALYZED trace for reasoning
+  // Find the ANALYZED trace for reasoning and priority
   const analyzedTrace = traces.find(t => t.action === 'ANALYZED');
   const reasoning = analyzedTrace?.decision?.reasoning;
+  // Prefer the agent's analyzed priority; fall back to status.priority
+  const agentPriorityRaw = analyzedTrace?.decision?.priority?.level || status?.priority || '';
+  const agentPriority = agentPriorityRaw.charAt(0).toUpperCase() + agentPriorityRaw.slice(1).toLowerCase();
   const hasTraces = traces.length > 0;
 
   if (loading) {
@@ -294,13 +297,13 @@ export default function AgentActivityPanel({ issueId }) {
       {/* Status summary */}
       {status && hasTraces && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 mb-3 p-2.5 bg-white/70 rounded-lg border border-white">
-          {status.priority && (
+          {agentPriority && (
             <div>
               <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Priority</p>
               <p className={`text-xs font-bold ${
-                status.priority === 'High' ? 'text-red-600' :
-                status.priority === 'Medium' ? 'text-orange-600' : 'text-green-600'
-              }`}>{status.priority}</p>
+                agentPriority === 'High' ? 'text-red-600' :
+                agentPriority === 'Medium' ? 'text-orange-600' : 'text-green-600'
+              }`}>{agentPriority}</p>
             </div>
           )}
           {status.latest_agent_action && (

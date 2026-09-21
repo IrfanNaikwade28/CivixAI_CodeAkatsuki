@@ -139,6 +139,7 @@ class IssueSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'image': {'write_only': True, 'required': False},
             'completion_photo': {'write_only': True, 'required': False},
+            'voice_audio': {'write_only': True, 'required': False},
             'assigned_to': {'write_only': True, 'required': False},
         }
 
@@ -154,6 +155,12 @@ class IssueSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.completion_photo.url)
         return None
 
+    def get_voice_audio_url(self, obj):
+        request = self.context.get('request')
+        if obj.voice_audio and request:
+            return request.build_absolute_uri(obj.voice_audio.url)
+        return None
+
     def get_upvoted_by_me(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
@@ -167,7 +174,7 @@ class IssueCreateSerializer(serializers.ModelSerializer):
         fields = [
             'title', 'description', 'category', 'ward',
             'location_text', 'location_lat', 'location_lng',
-            'is_public', 'image',
+            'is_public', 'image', 'voice_audio',
         ]
 
     def create(self, validated_data):

@@ -233,6 +233,14 @@ export function ClientProvider({ children }) {
       form.append('image', { uri, name: filename, type });
     }
 
+    if (data.audio) {
+      const uri      = data.audio;
+      const filename = uri.split('/').pop();
+      const match    = /\.(\w+)$/.exec(filename);
+      const type     = match ? `audio/${match[1]}` : 'audio/m4a';
+      form.append('voice_audio', { uri, name: filename, type });
+    }
+
     try {
       const { data: created } = await issuesAPI.create(form);
       const normalised = normaliseIssue(created);

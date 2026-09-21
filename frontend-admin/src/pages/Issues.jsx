@@ -86,6 +86,8 @@ export default function Issues() {
     image: issue.image_url || issue.image || null,
     // Backend: completion_photo_url (not completion_photo)
     completionPhoto: issue.completion_photo_url || issue.completion_photo || issue.completionPhoto || null,
+    // Backend: voice_audio_url
+    voiceAudio: issue.voice_audio_url || null,
   });
 
   return (
@@ -281,6 +283,18 @@ export default function Issues() {
                           <p className="text-xs text-gray-400">No fix photo yet</p>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Voice Evidence */}
+                {n.voiceAudio && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 mb-2">VOICE EVIDENCE</p>
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <audio controls src={n.voiceAudio} className="w-full h-10">
+                        Your browser does not support audio playback.
+                      </audio>
                     </div>
                   </div>
                 )}
