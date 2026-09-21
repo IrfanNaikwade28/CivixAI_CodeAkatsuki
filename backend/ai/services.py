@@ -44,7 +44,7 @@ def _get_client():
         _client = genai.Client(
             api_key=current_key,
             http_options=types.HttpOptions(
-                timeout=20,
+                timeout=60,
                 retry_options=types.HttpRetryOptions(attempts=1),
             ),
         )

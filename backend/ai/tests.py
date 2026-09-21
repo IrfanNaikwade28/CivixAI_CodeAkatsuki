@@ -134,3 +134,16 @@ class DetectIssuePreprocessTest(TestCase):
         self.assertEqual(part.inline_data.mime_type, 'image/jpeg')
         img = Image.open(io.BytesIO(part.inline_data.data))
         self.assertEqual(max(img.size), 1280)
+
+
+class GeminiClientConfigTest(TestCase):
+    def test_timeout_is_60_seconds(self):
+        import ai.services as svc
+        svc._client = None
+        with patch.object(svc.settings, 'GEMINI_API_KEY', 'test-key'):
+            with patch('google.genai.Client') as mock_cls:
+                mock_cls.return_value = MagicMock()
+                svc._get_client()
+                kwargs = mock_cls.call_args.kwargs
+                self.assertEqual(kwargs['http_options'].timeout, 60)
+        svc._client = None
