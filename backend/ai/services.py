@@ -4,12 +4,15 @@ Two features:
   1. detect_issue(image_file)  → {category, title, confidence}
   2. verify_completion(issue)  → {completion_score, verdict}
 
-Uses the google-genai SDK (replaces deprecated google-generativeai).
+Uses the google-genai SDK for completion verification.
+Uses direct httpx REST for issue detection (bypasses SDK transport issues).
 """
+import base64
 import io
 import json
 import logging
 
+import httpx
 from PIL import Image
 
 from django.conf import settings
@@ -65,6 +68,8 @@ def detect_issue(image_file) -> dict | None:
     """
     Analyze a citizen-uploaded image and return the detected issue category + title.
 
+    Uses direct httpx REST API instead of google-genai SDK to avoid SDK transport issues.
+
     Args:
         image_file: Django InMemoryUploadedFile or similar file-like object.
 
@@ -73,10 +78,6 @@ def detect_issue(image_file) -> dict | None:
         or None on failure.
     """
     try:
-        from google.genai import types
-
-        client = _get_client()
-
         image_bytes = image_file.read()
         processed_bytes = _preprocess_image(image_bytes)
 
@@ -93,15 +94,38 @@ Respond ONLY with valid JSON in this exact format (no markdown, no extra text):
 
 If no civic issue is visible, use category "Public Facilities" with low confidence."""
 
-        response = client.models.generate_content(
-            model='gemini-flash-lite-latest',
-            contents=[
-                types.Part.from_bytes(data=processed_bytes, mime_type='image/jpeg'),
-                prompt,
-            ],
-        )
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64.b64encode(processed_bytes).decode("utf-8"),
+                            }
+                        },
+                        {
+                            "text": prompt,
+                        },
+                    ]
+                }
+            ]
+        }
 
-        result = _parse_json_response(response.text)
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+        headers = {
+            "x-goog-api-key": settings.GEMINI_API_KEY,
+            "content-type": "application/json",
+        }
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=10.0)
+
+        response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+        result = _parse_json_response(text)
 
         valid_categories = ['Road', 'Water', 'Electricity', 'Garbage', 'Traffic', 'Public Facilities']
         if result.get('category') not in valid_categories:
