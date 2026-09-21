@@ -3,6 +3,7 @@ from django.test import TestCase
 from io import BytesIO
 
 from PIL import Image
+import base64
 import io
 import json
 
@@ -208,37 +209,186 @@ class DetectIssueRestTest(TestCase):
         self.assertLessEqual(max(img.size), 1280)
 
 
-class VerifyCompletionUnchangedTest(TestCase):
-    """Verify completion still uses google-genai SDK — unchanged."""
+class VerifyCompletionRestTest(TestCase):
+    """Tests for verify_completion_from_bytes() using direct httpx REST transport."""
 
-    @patch('ai.services._get_client')
-    def test_verify_completion_timeout_returns_none(self, mock_get_client):
-        """Gemini timeout during verify must not crash the worker."""
-        mock_client = MagicMock()
-        mock_client.models.generate_content.side_effect = Exception(
-            'Gemini request timed out'
-        )
-        mock_get_client.return_value = mock_client
-
+    @patch('ai.services.httpx.post')
+    def test_successful_response(self, mock_post):
+        """Valid Gemini JSON response is parsed correctly."""
         from ai.services import verify_completion_from_bytes
         from issues.models import Issue
         from django.contrib.auth import get_user_model
 
         User = get_user_model()
         user = User.objects.create_user(
-            username='timeoutuser', email='to@test.com',
+            username='verifyuser', email='verify@test.com',
             password='test1234', role='citizen', ward='Ward 1',
         )
         issue = Issue.objects.create(
-            title='Test', category='Road', ward='Ward 1',
+            title='Pothole repair', category='Road', ward='Ward 1',
             reported_by=user,
         )
 
-        result = verify_completion_from_bytes(
-            issue, b'\xff\xd8\xff\xe0', 'image/jpeg',
-            before_bytes=b'\xff\xd8\xff\xe0',
+        gemini_text = json.dumps({
+            'completion_score': 85,
+            'verdict': 'Road has been repaired properly.',
+        })
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = _gemini_response_payload(gemini_text)
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        before_bytes = _make_jpeg(200, 200)
+        after_bytes = _make_jpeg(200, 200)
+        result = verify_completion_from_bytes(issue, after_bytes, 'image/jpeg', before_bytes=before_bytes)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result['completion_score'], 85)
+        self.assertEqual(result['verdict'], 'Road has been repaired properly.')
+
+    @patch('ai.services.httpx.post')
+    def test_timeout_returns_none(self, mock_post):
+        """Network timeout must not crash the worker."""
+        from ai.services import verify_completion_from_bytes
+        import httpx
+        from issues.models import Issue
+        from django.contrib.auth import get_user_model
+
+        mock_post.side_effect = httpx.ReadTimeout("The read operation timed out")
+
+        User = get_user_model()
+        user = User.objects.create_user(
+            username='timeoutuser2', email='timeout2@test.com',
+            password='test1234', role='citizen', ward='Ward 1',
         )
+        issue = Issue.objects.create(
+            title='Test timeout', category='Road', ward='Ward 1',
+            reported_by=user,
+        )
+
+        before_bytes = _make_jpeg()
+        after_bytes = _make_jpeg()
+        result = verify_completion_from_bytes(issue, after_bytes, 'image/jpeg', before_bytes=before_bytes)
+
         self.assertIsNone(result)
+
+    @patch('ai.services.httpx.post')
+    def test_http_error_returns_none(self, mock_post):
+        """HTTP 4xx/5xx must not crash the worker."""
+        from ai.services import verify_completion_from_bytes
+        import httpx
+        from issues.models import Issue
+        from django.contrib.auth import get_user_model
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            message="500 Server Error",
+            request=MagicMock(),
+            response=MagicMock(status_code=500),
+        )
+        mock_post.return_value = mock_resp
+
+        User = get_user_model()
+        user = User.objects.create_user(
+            username='httperror', email='httperror@test.com',
+            password='test1234', role='citizen', ward='Ward 1',
+        )
+        issue = Issue.objects.create(
+            title='Test HTTP error', category='Road', ward='Ward 1',
+            reported_by=user,
+        )
+
+        before_bytes = _make_jpeg()
+        after_bytes = _make_jpeg()
+        result = verify_completion_from_bytes(issue, after_bytes, 'image/jpeg', before_bytes=before_bytes)
+
+        self.assertIsNone(result)
+
+    @patch('ai.services.httpx.post')
+    def test_images_are_preprocessed(self, mock_post):
+        """Both before and after images should be preprocessed to reduce size."""
+        from ai.services import verify_completion_from_bytes
+        from issues.models import Issue
+        from django.contrib.auth import get_user_model
+
+        gemini_text = json.dumps({
+            'completion_score': 50,
+            'verdict': 'Partial completion.',
+        })
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = _gemini_response_payload(gemini_text)
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        User = get_user_model()
+        user = User.objects.create_user(
+            username='preprocessuser', email='preprocess@test.com',
+            password='test1234', role='citizen', ward='Ward 1',
+        )
+        issue = Issue.objects.create(
+            title='Test preprocess', category='Road', ward='Ward 1',
+            reported_by=user,
+        )
+
+        large_before = _make_jpeg(3000, 2000)
+        large_after = _make_jpeg(3000, 2000)
+        verify_completion_from_bytes(issue, large_after, 'image/jpeg', before_bytes=large_before)
+
+        payload = mock_post.call_args.kwargs['json']
+        parts = payload['contents'][0]['parts']
+        before_b64 = parts[0]['inline_data']['data']
+        after_b64 = parts[1]['inline_data']['data']
+
+        decoded_before = base64.b64decode(before_b64)
+        decoded_after = base64.b64decode(after_b64)
+        before_img = Image.open(io.BytesIO(decoded_before))
+        after_img = Image.open(io.BytesIO(decoded_after))
+
+        self.assertEqual(max(before_img.size), 1280)
+        self.assertEqual(max(after_img.size), 1280)
+
+    @patch('ai.services.httpx.post')
+    def test_request_uses_correct_endpoint_and_headers(self, mock_post):
+        """Verify the REST request hits the correct endpoint with correct headers."""
+        from ai.services import verify_completion_from_bytes
+        from issues.models import Issue
+        from django.contrib.auth import get_user_model
+
+        gemini_text = json.dumps({
+            'completion_score': 70,
+            'verdict': 'Looks good.',
+        })
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = _gemini_response_payload(gemini_text)
+        mock_resp.raise_for_status = MagicMock()
+        mock_post.return_value = mock_resp
+
+        User = get_user_model()
+        user = User.objects.create_user(
+            username='endpointuser', email='endpoint@test.com',
+            password='test1234', role='citizen', ward='Ward 1',
+        )
+        issue = Issue.objects.create(
+            title='Test endpoint', category='Road', ward='Ward 1',
+            reported_by=user,
+        )
+
+        before_bytes = _make_jpeg()
+        after_bytes = _make_jpeg()
+        verify_completion_from_bytes(issue, after_bytes, 'image/jpeg', before_bytes=before_bytes)
+
+        call_kwargs = mock_post.call_args.kwargs
+        self.assertEqual(
+            call_kwargs['headers']['content-type'],
+            'application/json',
+        )
+        self.assertIn('x-goog-api-key', call_kwargs['headers'])
+
+        payload = call_kwargs['json']
+        parts = payload['contents'][0]['parts']
+        self.assertEqual(parts[0]['inline_data']['mime_type'], 'image/jpeg')
+        self.assertEqual(parts[1]['inline_data']['mime_type'], 'image/jpeg')
+        self.assertIn('completion_score', parts[2]['text'])
 
 
 class PreprocessImageTest(TestCase):

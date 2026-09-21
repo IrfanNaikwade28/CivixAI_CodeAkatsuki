@@ -4,8 +4,7 @@ Two features:
   1. detect_issue(image_file)  → {category, title, confidence}
   2. verify_completion(issue)  → {completion_score, verdict}
 
-Uses the google-genai SDK for completion verification.
-Uses direct httpx REST for issue detection (bypasses SDK transport issues).
+Uses direct httpx REST for both features (bypasses google-genai SDK transport issues).
 """
 import base64
 import io
@@ -178,6 +177,8 @@ def verify_completion_from_bytes(issue, after_bytes: bytes, after_mime: str, bef
     Score a worker's completion photo against the before-image.
     Accepts raw bytes so the after-photo need not be saved to disk yet.
 
+    Uses direct httpx REST API instead of google-genai SDK to avoid SDK transport issues.
+
     Args:
         issue:        Issue model instance (used for title/category/before-image path).
         after_bytes:  Raw bytes of the worker's completion photo.
@@ -189,16 +190,15 @@ def verify_completion_from_bytes(issue, after_bytes: bytes, after_mime: str, bef
         or None on failure.
     """
     try:
-        from google.genai import types
-
-        client = _get_client()
-
         if before_bytes is None:
             if not issue.image:
                 return None
             issue.image.open('rb')
             before_bytes = issue.image.read()
             issue.image.close()
+
+        processed_before = _preprocess_image(before_bytes)
+        processed_after = _preprocess_image(after_bytes)
 
         prompt = f"""You are a municipal work verification system for CivixAI, Ichalkaranji.
 
@@ -216,16 +216,44 @@ Respond ONLY with valid JSON (no markdown, no extra text):
   "verdict": "<1-2 sentence honest assessment of the work quality and completion>"
 }}"""
 
-        response = client.models.generate_content(
-            model='gemini-flash-lite-latest',
-            contents=[
-                types.Part.from_bytes(data=before_bytes, mime_type='image/jpeg'),
-                types.Part.from_bytes(data=after_bytes, mime_type=after_mime),
-                prompt,
-            ],
-        )
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64.b64encode(processed_before).decode("utf-8"),
+                            }
+                        },
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": base64.b64encode(processed_after).decode("utf-8"),
+                            }
+                        },
+                        {
+                            "text": prompt,
+                        },
+                    ]
+                }
+            ]
+        }
 
-        result = _parse_json_response(response.text)
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent"
+        headers = {
+            "x-goog-api-key": settings.GEMINI_API_KEY,
+            "content-type": "application/json",
+        }
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=10.0)
+
+        response = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+        response.raise_for_status()
+
+        data = response.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+        result = _parse_json_response(text)
         return {
             'completion_score': max(0, min(100, int(result.get('completion_score', 50)))),
             'verdict': result.get('verdict', 'Work completion assessed by AI.'),
