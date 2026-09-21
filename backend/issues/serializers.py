@@ -112,6 +112,7 @@ class IssueSerializer(serializers.ModelSerializer):
     timeline = IssueTimelineSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
     completion_photo_url = serializers.SerializerMethodField()
+    voice_audio_url = serializers.SerializerMethodField()
     upvoted_by_me = serializers.SerializerMethodField()
 
     class Meta:
@@ -122,6 +123,7 @@ class IssueSerializer(serializers.ModelSerializer):
             'ward', 'location_text', 'location_lat', 'location_lng',
             'is_public', 'upvotes',
             'image', 'image_url', 'completion_photo', 'completion_photo_url',
+            'voice_audio', 'voice_audio_url',
             'ai_completion_score', 'ai_completion_verdict',
             'reported_by', 'reported_by_detail',
             'assigned_to', 'assigned_to_detail',

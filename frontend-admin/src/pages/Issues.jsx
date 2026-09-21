@@ -9,7 +9,7 @@ const statuses = ['All', 'Submitted', 'Assigned', 'In Progress', 'Resolved', 'Cl
 const priorities = ['All', 'High', 'Medium', 'Low'];
 
 export default function Issues() {
-  const { issues, workers, updateIssueStatus, assignWorker, refreshIssues } = useApp();
+  const { issues, workers, updateIssueStatus, assignWorker } = useApp();
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');

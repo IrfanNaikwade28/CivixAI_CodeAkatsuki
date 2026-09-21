@@ -9,7 +9,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
-import { apiGetCategoryTrend, apiGetResolutionTrend, apiGetActivityLog } from '../services/api';
+import { apiGetCategoryTrend, apiGetResolutionTrend, apiGetActivityLog, apiTriggerMonitor } from '../services/api';
 
 const PIE_COLORS = ['#2563eb', '#0ea5e9', '#f59e0b', '#16a34a', '#8b5cf6', '#ec4899'];
 
@@ -42,6 +42,8 @@ export default function Dashboard() {
   const [categoryTrend, setCategoryTrend] = useState([]);
   const [resolutionTrend, setResolutionTrend] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
+  const [monitorLoading, setMonitorLoading] = useState(false);
+  const [monitorResult, setMonitorResult] = useState('');
 
   useEffect(() => {
     apiGetCategoryTrend().then(d => setCategoryTrend(Array.isArray(d) ? d : (d.results || []))).catch(() => {});
@@ -75,30 +77,58 @@ export default function Dashboard() {
   // High priority unassigned
   const urgent = issues.filter(i => i.priority === 'High' && !i.assigned_to && !i.assignedTo);
 
+  const handleRunMonitor = async () => {
+    setMonitorLoading(true);
+    setMonitorResult('');
+    try {
+      await apiTriggerMonitor();
+      setMonitorResult('Monitor completed — escalation/follow-up checks done');
+    } catch (e) {
+      setMonitorResult(e.message || 'Monitor failed');
+    } finally {
+      setMonitorLoading(false);
+      setTimeout(() => setMonitorResult(''), 4000);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-        <p className="text-gray-500 text-sm mt-1">Ichalkaranji Municipal Corporation — Real-time overview</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+          <p className="text-gray-500 text-sm mt-1">Ichalkaranji Municipal Corporation — Real-time overview</p>
+        </div>
+        <button
+          onClick={handleRunMonitor}
+          disabled={monitorLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-[#1e3a8a] text-white rounded-lg text-sm font-medium hover:bg-blue-800 transition-colors disabled:opacity-60"
+        >
+          {monitorLoading ? 'Running...' : 'Run Agent Monitor'}
+        </button>
       </div>
+      {monitorResult && (
+        <div className={`text-xs px-4 py-2 rounded-lg ${monitorResult.includes('failed') || monitorResult.includes('Failed') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+          {monitorResult}
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard title="Total Issues" value={total} sub="All time" icon={AlertCircle} color="bg-blue-600" trend="+4 today" />
+        <KpiCard title="Total Issues" value={total} sub="All time" icon={AlertCircle} color="bg-blue-600" />
         <KpiCard title="High Priority" value={highPriority} sub="Needs attention" icon={Activity} color="bg-red-500" />
-        <KpiCard title="Avg Resolution" value={avgResolution} sub="Resolved issues" icon={Clock} color="bg-orange-500" trend="↓ 2h vs last week" />
+        <KpiCard title="Avg Resolution" value={avgResolution} sub="For resolved issues" icon={Clock} color="bg-orange-500" />
         <KpiCard title="Active Workers" value={activeWorkers} sub={`of ${workers.length} total`} icon={Users} color="bg-green-600" />
       </div>
 
       {/* Second row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-5 col-span-2 lg:col-span-1">
-          <p className="text-sm text-gray-500 font-medium">Resolved Today</p>
+          <p className="text-sm text-gray-500 font-medium">Total Resolved</p>
           <p className="text-3xl font-bold text-gray-900 mt-1">{resolved}</p>
           <p className="text-xs text-gray-400 mt-1">Closed + Resolved</p>
           <div className="mt-3 flex items-center gap-1 text-green-600 text-xs font-medium">
             <CheckCircle2 size={13} />
-            <span>+3 from yesterday</span>
+            <span>{total > 0 ? Math.round((resolved / total) * 100) : 0}% of all issues</span>
           </div>
         </Card>
         <Card className="p-5 col-span-2 lg:col-span-1">
@@ -143,11 +173,9 @@ export default function Dashboard() {
               <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} />
-              <Bar dataKey="Road" fill="#2563eb" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Water" fill="#0ea5e9" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Electricity" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Garbage" fill="#16a34a" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Traffic" fill="#8b5cf6" radius={[3, 3, 0, 0]} />
+              {categoryTrend.length > 0 && Object.keys(categoryTrend[0]).filter(k => k !== 'month').map((cat, i) => (
+                <Bar key={cat} dataKey={cat} fill={PIE_COLORS[i % PIE_COLORS.length]} radius={[3, 3, 0, 0]} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </Card>

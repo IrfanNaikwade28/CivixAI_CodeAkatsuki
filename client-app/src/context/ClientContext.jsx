@@ -138,10 +138,8 @@ export function ClientProvider({ children }) {
   // ── Register ─────────────────────────────────────────────────────────────────
   const register = async ({ name, email, phone, ward, password }) => {
     try {
-      const [first_name, ...rest] = name.trim().split(' ');
       await authAPI.register({
-        first_name,
-        last_name: rest.join(' ') || '',
+        name,
         email,
         phone,
         ward,

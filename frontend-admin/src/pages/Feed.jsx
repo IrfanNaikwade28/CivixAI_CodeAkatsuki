@@ -16,20 +16,7 @@ const noticeCfg = {
   Event: { bg: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-700', icon: Radio, color: 'text-green-600' },
 };
 
-const statusDot = {
-  Submitted: 'bg-gray-400',
-  Assigned: 'bg-blue-500',
-  'In Progress': 'bg-yellow-500',
-  Resolved: 'bg-green-500',
-  Closed: 'bg-slate-400',
-};
-const statusBg = {
-  Submitted: 'bg-gray-100 text-gray-700',
-  Assigned: 'bg-blue-100 text-blue-700',
-  'In Progress': 'bg-yellow-100 text-yellow-700',
-  Resolved: 'bg-green-100 text-green-700',
-  Closed: 'bg-slate-100 text-slate-600',
-};
+
 
 const categoryIcons = {
   Road: '🛣️', Water: '💧', Electricity: '⚡', Garbage: '🗑️',

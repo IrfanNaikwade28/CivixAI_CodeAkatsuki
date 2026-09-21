@@ -1,8 +1,10 @@
 import { Card, Button } from '../components/ui/index.jsx';
-import { Settings as SettingsIcon, Sliders, Bell, Shield, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Sliders, Bell, Database, LogOut } from 'lucide-react';
 import { useState } from 'react';
+import { useApp } from '../context/AppContext';
 
 export default function Settings() {
+  const { user, logout } = useApp();
   const [weights, setWeights] = useState({
     baseWeight: 50,
     timeFactor: 30,
@@ -99,6 +101,31 @@ export default function Settings() {
         </div>
       </Card>
 
+      {/* Admin Account */}
+      <Card className="p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-blue-100 rounded-lg">
+            <SettingsIcon size={18} className="text-blue-700" />
+          </div>
+          <h3 className="font-semibold text-gray-900">Admin Account</h3>
+        </div>
+        <div className="space-y-2 text-sm mb-4">
+          {[
+            { label: 'Name', value: user?.full_name || user?.name || '—' },
+            { label: 'Email', value: user?.email || '—' },
+            { label: 'Role', value: user?.role || 'admin' },
+          ].map(row => (
+            <div key={row.label} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+              <span className="text-gray-500">{row.label}</span>
+              <span className="font-medium text-gray-800">{row.value}</span>
+            </div>
+          ))}
+        </div>
+        <Button variant="outline" onClick={logout} className="w-full justify-center text-red-600 border-red-200 hover:bg-red-50">
+          <LogOut size={15} /> Sign Out
+        </Button>
+      </Card>
+
       {/* System Info */}
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -113,6 +140,7 @@ export default function Settings() {
             { label: 'Municipality', value: 'Ichalkaranji Municipal Corporation' },
             { label: 'Mode', value: 'Live API' },
             { label: 'Backend', value: 'Django REST Framework — http://localhost:8000' },
+            { label: 'Version', value: '1.0.0 — Hackathon MVP' },
           ].map(row => (
             <div key={row.label} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
               <span className="text-gray-500">{row.label}</span>

@@ -4,11 +4,11 @@ import { MapPin, Filter, X, ChevronRight } from 'lucide-react';
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 const STATUS_COLOR = {
-  Submitted:   '#6b7280', // gray
-  Assigned:    '#2563eb', // blue
-  InProgress:  '#f59e0b', // amber
-  Resolved:    '#16a34a', // green
-  Rejected:    '#dc2626', // red
+  Submitted:    '#6b7280', // gray
+  Assigned:     '#2563eb', // blue
+  'In Progress': '#f59e0b', // amber
+  Resolved:     '#16a34a', // green
+  Closed:       '#64748b', // slate
 };
 
 function markerColor(issue) {

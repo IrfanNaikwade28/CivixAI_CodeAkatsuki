@@ -51,6 +51,7 @@ class Issue(models.Model):
 
     image = models.ImageField(upload_to='issues/before/', null=True, blank=True)
     completion_photo = models.ImageField(upload_to='issues/after/', null=True, blank=True)
+    voice_audio = models.FileField(upload_to='issue_audio/', null=True, blank=True)
 
     # AI fields
     ai_completion_score = models.IntegerField(null=True, blank=True)
