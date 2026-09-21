@@ -12,6 +12,11 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-civixai-dev-key')
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if os.environ.get('ALLOWED_HOSTS') else ['localhost', '127.0.0.1']
 
+# ─── Cloudinary (production media storage) ────────────────────────────────────
+CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY', '')
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET', '')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -23,6 +28,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'cloudinary_storage',
+    'cloudinary',
     # CivixAI apps
     'accounts',
     'issues',
@@ -64,12 +71,15 @@ TEMPLATES = [
 WSGI_APPLICATION = 'civixai.wsgi.application'
 
 # ─── Database ────────────────────────────────────────────────────────────────
-# Production: set DATABASE_URL env var (e.g. postgres://user:pass@host:5432/dbname)
+# Production: set DATABASE_URL env var (e.g. postgres://user:pass@host:5432/dbname?sslmode=require)
 # Local dev: falls back to SQLite when DATABASE_URL is not set.
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
 if DATABASE_URL:
     url = urlparse(DATABASE_URL)
+    # Parse query parameters for sslmode (Neon requires SSL).
+    query_params = dict(param.split('=', 1) for param in url.query.split('&') if '=' in param) if url.query else {}
+    sslmode = query_params.get('sslmode', 'require')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -78,6 +88,9 @@ if DATABASE_URL:
             'PASSWORD': url.password or '',
             'HOST': url.hostname or 'localhost',
             'PORT': url.port or '5432',
+            'OPTIONS': {
+                'sslmode': sslmode,
+            },
         }
     }
 else:
@@ -107,6 +120,29 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# ─── File Storage ─────────────────────────────────────────────────────────────
+# Production: Cloudinary for persistent media.  Local: filesystem.
+if CLOUDINARY_CLOUD_NAME:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'cloudinary_storage.storage.MediaCloudinaryStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }
+    # Cloudinary URLs are absolute — serializers must NOT wrap them in build_absolute_uri.
+    CLOUDINARY_URL = f"cloudinary://{CLOUDINARY_API_KEY}:{CLOUDINARY_API_SECRET}@{CLOUDINARY_CLOUD_NAME}"
+else:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

@@ -110,10 +110,13 @@ def verify_completion(issue) -> dict | None:
         if not issue.image or not issue.completion_photo:
             return None
 
-        with open(issue.image.path, 'rb') as f:
-            before_bytes = f.read()
-        with open(issue.completion_photo.path, 'rb') as f:
-            after_bytes = f.read()
+        issue.image.open('rb')
+        before_bytes = issue.image.read()
+        issue.image.close()
+
+        issue.completion_photo.open('rb')
+        after_bytes = issue.completion_photo.read()
+        issue.completion_photo.close()
 
         return verify_completion_from_bytes(issue, after_bytes, 'image/jpeg', before_bytes=before_bytes)
 
@@ -145,8 +148,9 @@ def verify_completion_from_bytes(issue, after_bytes: bytes, after_mime: str, bef
         if before_bytes is None:
             if not issue.image:
                 return None
-            with open(issue.image.path, 'rb') as f:
-                before_bytes = f.read()
+            issue.image.open('rb')
+            before_bytes = issue.image.read()
+            issue.image.close()
 
         prompt = f"""You are a municipal work verification system for CivixAI, Ichalkaranji.
 

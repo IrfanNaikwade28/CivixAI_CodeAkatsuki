@@ -1072,10 +1072,14 @@ class HealthCheckTest(TestCase):
 
 
 class DatabaseConfigTest(TestCase):
-    def test_sqlite_fallback_when_no_database_url(self):
-        from django.conf import settings
-        # In test env, DATABASE_URL is not set, so should use SQLite
-        self.assertEqual(settings.DATABASES['default']['ENGINE'], 'django.db.backends.sqlite3')
+    @patch('dotenv.load_dotenv')
+    @patch.dict(os.environ, {}, clear=True)
+    def test_sqlite_fallback_when_no_database_url(self, _mock_load_dotenv):
+        import importlib
+        import civixai.settings as settings_mod
+        importlib.reload(settings_mod)
+        self.assertEqual(settings_mod.DATABASES['default']['ENGINE'], 'django.db.backends.sqlite3')
+        importlib.reload(settings_mod)
 
     @patch.dict(os.environ, {'DATABASE_URL': 'postgres://testuser:testpass@localhost:5432/testdb'})
     def test_postgresql_config_from_env(self):

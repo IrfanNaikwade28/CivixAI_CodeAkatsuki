@@ -5,6 +5,22 @@ from rest_framework_simplejwt.tokens import RefreshToken
 User = get_user_model()
 
 
+def _file_url(file_field, request):
+    """Return a usable URL for a FileField/ImageField.
+
+    Cloudinary storage returns absolute URLs directly.  Local FileSystemStorage
+    returns relative paths that need build_absolute_uri().
+    """
+    if not file_field:
+        return None
+    url = file_field.url
+    if url.startswith(('http://', 'https://')):
+        return url
+    if request:
+        return request.build_absolute_uri(url)
+    return url
+
+
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     profile_photo_url = serializers.SerializerMethodField()
@@ -19,12 +35,7 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'display_id', 'joined_date']
 
     def get_profile_photo_url(self, obj):
-        if not obj.profile_photo:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.profile_photo.url)
-        return obj.profile_photo.url
+        return _file_url(obj.profile_photo, self.context.get('request'))
 
 
 class RegisterSerializer(serializers.ModelSerializer):

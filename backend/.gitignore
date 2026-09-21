@@ -18,9 +18,9 @@ ENV/
 *.log
 db.sqlite3
 db.sqlite3-journal
-/media
-/staticfiles
-/static
+/media/
+/staticfiles/
+/static/
 local_settings.py
 
 # Environment Variables

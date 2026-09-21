@@ -11,6 +11,22 @@ except ImportError:
 
 User = get_user_model()
 
+
+def _file_url(file_field, request):
+    """Return a usable URL for a FileField/ImageField.
+
+    Cloudinary storage returns absolute URLs directly.  Local FileSystemStorage
+    returns relative paths that need build_absolute_uri().
+    """
+    if not file_field:
+        return None
+    url = file_field.url
+    if url.startswith(('http://', 'https://')):
+        return url
+    if request:
+        return request.build_absolute_uri(url)
+    return url
+
 # OLC short-code pattern: 2–8 uppercase chars, '+', 2–3 chars
 _SHORT_CODE_RE = re.compile(r'\b([23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{2,3})\b', re.I)
 _COORD_RE      = re.compile(r'([\d.]+)[°\s]*N[,\s]+([\d.]+)[°\s]*E', re.I)
@@ -81,12 +97,7 @@ class AuthorSerializer(serializers.ModelSerializer):
         fields = ['id', 'display_id', 'name', 'role', 'ward', 'profile_photo_url']
 
     def get_profile_photo_url(self, obj):
-        if not obj.profile_photo:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.profile_photo.url)
-        return obj.profile_photo.url
+        return _file_url(obj.profile_photo, self.context.get('request'))
 
 
 class IssueCommentSerializer(serializers.ModelSerializer):
@@ -144,22 +155,13 @@ class IssueSerializer(serializers.ModelSerializer):
         }
 
     def get_image_url(self, obj):
-        request = self.context.get('request')
-        if obj.image and request:
-            return request.build_absolute_uri(obj.image.url)
-        return None
+        return _file_url(obj.image, self.context.get('request'))
 
     def get_completion_photo_url(self, obj):
-        request = self.context.get('request')
-        if obj.completion_photo and request:
-            return request.build_absolute_uri(obj.completion_photo.url)
-        return None
+        return _file_url(obj.completion_photo, self.context.get('request'))
 
     def get_voice_audio_url(self, obj):
-        request = self.context.get('request')
-        if obj.voice_audio and request:
-            return request.build_absolute_uri(obj.voice_audio.url)
-        return None
+        return _file_url(obj.voice_audio, self.context.get('request'))
 
     def get_upvoted_by_me(self, obj):
         request = self.context.get('request')
